@@ -423,10 +423,6 @@ impl<'m> Job<'m> {
         };
         Ok(Value::S(self.per_lane(&items, &f)))
     }
-
-    pub(crate) fn arr_value(&self, a: Array) -> Value {
-        Value::A(Arc::new(a))
-    }
 }
 
 /// Excel aggregate semantics over a mixed sequence of range and direct items.

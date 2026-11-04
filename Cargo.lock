@@ -16,6 +16,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "batchcalc-xll"
+version = "1.0.0"
+dependencies = [
+ "batchcalc",
+ "mimalloc",
+ "xlcalc",
+ "xlmodel",
+]
+
+[[package]]
 name = "bitflags"
 version = "2.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"

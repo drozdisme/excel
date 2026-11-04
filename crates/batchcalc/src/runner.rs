@@ -51,8 +51,9 @@ pub struct StageReport {
 pub struct RunResult {
     /// Final content of every sheet the stages cleared or wrote.
     pub patches: Overlay,
-    /// Per sheet, the rectangles cleared (in order) before writing.
     pub reports: Vec<StageReport>,
+    /// Cells the macro leaves behind (driver values, RUNNING flags), to write after outputs.
+    pub final_state: Vec<(usize, Cell, Scalar)>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -190,7 +191,9 @@ pub fn run(model: &Model, contract: &Contract, stages: &[String], opts: &RunOpti
         state = new_state;
         reports.push(StageReport { seconds: started.elapsed().as_secs_f64(), ..report });
     }
-    Ok(RunResult { patches: overlay, reports })
+    let mut final_state: Vec<(usize, Cell, Scalar)> = state.into_iter().map(|((s, c), v)| (s, c, v.get(0))).collect();
+    final_state.sort_by_key(|(s, c, _)| (*s, c.row, c.col));
+    Ok(RunResult { patches: overlay, reports, final_state })
 }
 
 fn merge(dst: &mut SheetPatch, src: SheetPatch) {

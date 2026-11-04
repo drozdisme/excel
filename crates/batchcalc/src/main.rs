@@ -100,6 +100,42 @@ fn main() {
                 }
             }
         }
+        "diff" => {
+            // diff A B --sheets S1,S2: compare stored values of two workbooks cell by cell.
+            let other = args.get(2).cloned().unwrap_or_else(|| fail("diff needs two workbooks"));
+            let sheets: Vec<String> = flag("--sheets").map(|s| s.split(',').map(str::to_string).collect()).unwrap_or_else(|| fail("diff needs --sheets"));
+            let opts = xlmodel::ReadOptions { sheets: Some(sheets.clone()) };
+            let a = xlmodel::read_workbook(&book, &opts).unwrap_or_else(|e| fail(e));
+            let b = xlmodel::read_workbook(other.as_ref(), &opts).unwrap_or_else(|e| fail(e));
+            let mut total_bad = 0;
+            for s in &sheets {
+                let (Some(x), Some(y)) = (a.sheet(s), b.sheet(s)) else { fail(format!("sheet {s} missing")) };
+                let (rows, cols) = (x.max_row().max(y.max_row()), x.max_col().max(y.max_col()));
+                let (mut n, mut bad, mut max) = (0usize, 0usize, 0f64);
+                for row in 1..=rows {
+                    for col in 1..=cols {
+                        let c = xlmodel::Cell { row, col };
+                        let (p, q) = (x.value(c), y.value(c));
+                        if *p == xlmodel::CellValue::Empty && *q == xlmodel::CellValue::Empty {
+                            continue;
+                        }
+                        n += 1;
+                        if !verify::equal(p, q, &mut max) {
+                            bad += 1;
+                            if bad <= 3 {
+                                println!("    {s}!{}: {:?} vs {:?}", xlmodel::a1(c), p, q);
+                            }
+                        }
+                    }
+                }
+                total_bad += bad;
+                println!("  {s:<20} {n:>9} cells, {bad} different, max |diff| {max:.3e}");
+            }
+            println!("DIFF {}", if total_bad == 0 { "EQUAL" } else { "DIFFERENT" });
+            if total_bad > 0 {
+                std::process::exit(3);
+            }
+        }
         "selfcheck" => {
             // Recalculate every formula of the given sheets with the workbook's own inputs and
             // compare with the values Excel stored. Diagnoses semantic differences.

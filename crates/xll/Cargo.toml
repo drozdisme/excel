@@ -1,0 +1,15 @@
+[package]
+name = "batchcalc-xll"
+version = "1.0.0"
+edition = "2024"
+description = "BatchCalc Excel add-in"
+
+[lib]
+name = "batchcalc_xll"
+crate-type = ["cdylib"]
+
+[dependencies]
+batchcalc = { path = "../batchcalc" }
+xlcalc = { path = "../xlcalc" }
+xlmodel = { path = "../xlmodel" }
+mimalloc = { version = "0.1", default-features = false }

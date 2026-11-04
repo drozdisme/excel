@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/xlmodel", "crates/xlformula", "crates/xlcalc", "crates/batchcalc"]
+members = ["crates/xlmodel", "crates/xlformula", "crates/xlcalc", "crates/batchcalc", "crates/xll"]
 resolver = "2"
 
 [profile.release]
@@ -8,3 +8,4 @@ lto = "fat"
 codegen-units = 1
 panic = "unwind"
 debug = "line-tables-only"
+
