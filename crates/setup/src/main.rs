@@ -178,17 +178,17 @@ fn uninstall(ui: &Ui) -> Result<(), String> {
             }
         }
     }
-    remove_empty_dirs(&dir);
-    // A setup copy inside the folder removes itself after this process exits.
-    let me = std::env::current_exe().map_err(|e| e.to_string())?;
-    if me.starts_with(&dir) {
-        let _ = std::process::Command::new("cmd")
-            .args(["/c", &format!("ping -n 3 127.0.0.1 >nul & del /q \"{}\" & rmdir \"{}\"", me.display(), dir.display())])
-            .spawn();
-    } else {
-        let _ = std::fs::remove_file(dir.join("BatchCalc-Setup.exe"));
-        let _ = std::fs::remove_dir(&dir);
+    // We run from a temporary copy (see main), so the installed setup can be removed; the
+    // launching process may still be exiting, hence the short retry.
+    let setup_copy = dir.join("BatchCalc-Setup.exe");
+    for _ in 0..50 {
+        if !setup_copy.exists() || std::fs::remove_file(&setup_copy).is_ok() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
     }
+    remove_empty_dirs(&dir);
+    let _ = std::fs::remove_dir(&dir);
     ui.info(&format!("{APP} has been removed. Restart Excel to unload the add-in."));
     Ok(())
 }
@@ -207,7 +207,19 @@ fn remove_empty_dirs(dir: &Path) {
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).map(|a| a.to_ascii_lowercase()).collect();
     let ui = Ui { quiet: args.iter().any(|a| a == "/quiet" || a == "/q" || a == "--quiet") };
-    let res = if args.iter().any(|a| a == "/uninstall" || a == "--uninstall") { uninstall(&ui) } else { install(&ui) };
+    let uninstalling = args.iter().any(|a| a == "/uninstall" || a == "--uninstall");
+    // An installed setup cannot delete itself: relaunch from a temporary copy and exit.
+    if uninstalling {
+        if let Ok(me) = std::env::current_exe() {
+            if me.starts_with(install_dir()) {
+                let tmp = std::env::temp_dir().join(format!("BatchCalc-Uninstall-{}.exe", std::process::id()));
+                if std::fs::copy(&me, &tmp).is_ok() && std::process::Command::new(&tmp).args(std::env::args().skip(1)).spawn().is_ok() {
+                    return;
+                }
+            }
+        }
+    }
+    let res = if uninstalling { uninstall(&ui) } else { install(&ui) };
     if let Err(e) = res {
         ui.error(&e);
         std::process::exit(1);
