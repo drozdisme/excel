@@ -5,6 +5,10 @@ version = 4
 [[package]]
 name = "batchcalc"
 version = "0.1.0"
+dependencies = [
+ "xlcalc",
+ "xlmodel",
+]
 
 [[package]]
 name = "bitflags"
@@ -273,6 +277,11 @@ dependencies = [
 [[package]]
 name = "xlcalc"
 version = "0.1.0"
+dependencies = [
+ "thiserror",
+ "xlformula",
+ "xlmodel",
+]
 
 [[package]]
 name = "xlformula"

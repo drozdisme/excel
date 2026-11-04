@@ -1,14 +1,19 @@
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
+//! Lane-vectorised Excel formula evaluation: one formula graph, many cases at once.
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+pub mod eval;
+mod format;
+mod funcs;
+mod funcs_array;
+mod funcs_ref;
+mod funcs_stat;
+pub mod lanes;
+pub mod lookup;
+pub mod scalar;
+mod scalars;
+mod udf;
+pub mod value;
 
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
-}
+pub use eval::{Ctx, EvalError, Job, Model};
+pub use lanes::Lanes;
+pub use scalar::Scalar;
+pub use value::{Array, RefRange, Value};

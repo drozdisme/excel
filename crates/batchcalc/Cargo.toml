@@ -4,3 +4,5 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+xlcalc = { version = "0.1.0", path = "../xlcalc" }
+xlmodel = { version = "0.1.0", path = "../xlmodel" }
