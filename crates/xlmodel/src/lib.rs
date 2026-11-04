@@ -1,8 +1,10 @@
 //! Streaming reader of an Excel OOXML workbook (xlsx/xlsm) into an immutable model:
 //! typed cell values, formulas (shared/array groups kept compact), defined names.
 
+mod ftab;
 mod reader;
 pub mod value;
+mod xlsb;
 
 pub use reader::{read_workbook, ReadOptions};
 pub use value::{CellValue, XlError};

@@ -99,6 +99,73 @@ fn main() {
                 }
             }
         }
+        "compare-formulas" => {
+            // Same workbook in two formats (e.g. .xlsm vs .xlsb): formulas, arrays, names, values.
+            let other = args.get(2).cloned().unwrap_or_else(|| fail("compare-formulas needs two workbooks"));
+            let a = xlmodel::read_workbook(&book, &Default::default()).unwrap_or_else(|e| fail(e));
+            let b = xlmodel::read_workbook(other.as_ref(), &Default::default()).unwrap_or_else(|e| fail(e));
+            let (mut nf, mut bad, mut vals, mut vbad) = (0, 0, 0, 0);
+            let render = |f: &xlmodel::Formula, c: xlmodel::Cell| -> String {
+                xlformula::parse(&f.text, f.origin).map(|e| xlformula::to_a1(&e, c)).unwrap_or_else(|e| format!("PARSE ERROR {e}"))
+            };
+            for sa in &a.sheets {
+                let Some(sb) = b.sheet(&sa.name) else { fail(format!("sheet {} missing", sa.name)) };
+                let mut cells: Vec<_> = sa.formulas.keys().chain(sb.formulas.keys()).copied().collect();
+                cells.sort_by_key(|c| (c.row, c.col));
+                cells.dedup();
+                for c in cells {
+                    nf += 1;
+                    let (fa, fb) = (sa.formulas.get(&c), sb.formulas.get(&c));
+                    let ok = match (fa, fb) {
+                        (Some(x), Some(y)) => render(x, c) == render(y, c) && x.kind == y.kind,
+                        _ => false,
+                    };
+                    if !ok {
+                        bad += 1;
+                        if bad <= 12 {
+                            println!(
+                                "  {}!{}\n     A: {:?} {:?}\n     B: {:?} {:?}",
+                                sa.name,
+                                xlmodel::a1(c),
+                                fa.map(|f| render(f, c)),
+                                fa.map(|f| &f.kind),
+                                fb.map(|f| render(f, c)),
+                                fb.map(|f| &f.kind)
+                            );
+                        }
+                    }
+                }
+                for row in 1..=sa.max_row().max(sb.max_row()) {
+                    for col in 1..=sa.max_col().max(sb.max_col()) {
+                        let c = xlmodel::Cell { row, col };
+                        let (p, q) = (sa.value(c), sb.value(c));
+                        if *p == xlmodel::CellValue::Empty && *q == xlmodel::CellValue::Empty {
+                            continue;
+                        }
+                        vals += 1;
+                        let mut m = 0.0;
+                        if !verify::equal(p, q, &mut m) && !(matches!(p, xlmodel::CellValue::Text(t) if t.is_empty()) && *q == xlmodel::CellValue::Empty) {
+                            vbad += 1;
+                            if vbad <= 5 {
+                                println!("  value {}!{}: {:?} vs {:?}", sa.name, xlmodel::a1(c), p, q);
+                            }
+                        }
+                    }
+                }
+            }
+            let mut nbad = 0;
+            for n in &a.names {
+                let m = b.names.iter().find(|x| x.name.eq_ignore_ascii_case(&n.name) && x.scope == n.scope);
+                let norm = |t: &str| xlformula::parse(t, xlmodel::Cell { row: 1, col: 1 }).map(|e| xlformula::to_a1(&e, xlmodel::Cell { row: 1, col: 1 })).unwrap_or(t.to_string());
+                if m.is_none_or(|m| norm(&m.refers_to) != norm(&n.refers_to)) {
+                    nbad += 1;
+                    if nbad <= 5 {
+                        println!("  name {}: {:?} vs {:?}", n.name, n.refers_to, m.map(|m| &m.refers_to));
+                    }
+                }
+            }
+            println!("formulas {nf} ({bad} different), values {vals} ({vbad} different), names {} ({nbad} different)", a.names.len());
+        }
         "diff" => {
             // diff A B --sheets S1,S2: compare stored values of two workbooks cell by cell.
             let other = args.get(2).cloned().unwrap_or_else(|| fail("diff needs two workbooks"));

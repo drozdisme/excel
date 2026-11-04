@@ -20,6 +20,10 @@ type Zip = zip::ZipArchive<BufReader<File>>;
 pub fn read_workbook(path: &Path, opts: &ReadOptions) -> Result<Workbook, ModelError> {
     let file = BufReader::with_capacity(1 << 20, File::open(path)?);
     let mut zip = zip::ZipArchive::new(file)?;
+    if zip.index_for_name("xl/workbook.bin").is_some() {
+        let rels = read_rels(&mut zip, "xl/_rels/workbook.bin.rels")?;
+        return crate::xlsb::read_xlsb(&mut zip, &rels, opts);
+    }
     let rels = read_rels(&mut zip, "xl/_rels/workbook.xml.rels")?;
     let mut wb = Workbook::default();
     let sheet_parts = read_workbook_xml(&mut zip, &rels, &mut wb)?;
