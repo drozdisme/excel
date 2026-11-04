@@ -17,3 +17,4 @@ pub use eval::{Ctx, EvalError, Job, Model};
 pub use lanes::Lanes;
 pub use scalar::Scalar;
 pub use value::{Array, RefRange, Value};
+pub use eval::{Overlay, SheetPatch};

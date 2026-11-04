@@ -4,5 +4,9 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+thiserror = "2.0.21"
 xlcalc = { version = "0.1.0", path = "../xlcalc" }
+xlformula = { version = "0.1.0", path = "../xlformula" }
 xlmodel = { version = "0.1.0", path = "../xlmodel" }

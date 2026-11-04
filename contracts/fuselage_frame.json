@@ -1,0 +1,133 @@
+{
+  "name": "777P2F Fuselage Frame Analysis",
+  "description": "Frame section, frame joint and shear tie analysis. Mirrors VBA modules TUCFrameAnalysis, TUCFrameJointAnalysis and TUCShearTieAnalysis (RevH1).",
+  "required_sheets": ["Section_Analysis", "Joint_Analysis", "Shear_Tie_Analysis", "Node_Map", "Frame_Loads", "Loadcases", "VBA_Config",
+                      "Geometry_Output", "Load_Output", "CG_Load_Output", "Stress_Output", "CG_Stress_Output", "Gross_Stress_Output", "MS", "MS_Joint", "MS_Shear_Tie"],
+  "commands": [
+    { "name": "frame",        "label": "Run Frame Analysis",            "stages": ["sections"] },
+    { "name": "joints",       "label": "Run Frame Joint Analysis",      "stages": ["joints"] },
+    { "name": "frame_joints", "label": "Run Frame + Joint Analysis",    "stages": ["sections", "joints"] },
+    { "name": "shear_ties",   "label": "Run Shear Tie Analysis",        "stages": ["shear_ties"] },
+    { "name": "all",          "label": "Run All Analysis",              "stages": ["sections", "joints", "shear_ties"] }
+  ],
+  "stages": [
+    {
+      "name": "sections",
+      "freeze": ["Joint_Analysis", "Shear_Tie_Analysis", "Geometry_Output"],
+      "clear": ["Geometry_Output!B8:M57", "Geometry_Output!P8:Z57", "Geometry_Output!AB8:AM57", "Geometry_Output!AO8:AZ57",
+                "Geometry_Output!BB8:BM57", "Geometry_Output!BO8:BZ57",
+                "CG_Load_Output", "Load_Output", "CG_Stress_Output", "Stress_Output", "Gross_Stress_Output", "MS"],
+      "set": [["VBA_Config!F4", "\"Y\""]],
+      "after": [["VBA_Config!F4", "\"N\""]],
+      "loops": [{ "var": "I", "from": "1", "to": "100" }, { "var": "K", "from": "1", "to": "2" }],
+      "vars": [
+        ["FLAG", "N(INDEX(Node_Map!$A:$A, 55+I))"],
+        ["ID", "INDEX(Node_Map!$B:$B, 55+I)&\"\""],
+        ["OPT", "VBA_Config!$C$5"],
+        ["LOADSET", "IF(OR(OPT=1, I<=50), IF(K=1,\"A\",\"B\"), IF(K=1,\"B\",\"A\"))"]
+      ],
+      "skip": "OR(ID=\"\", FLAG=4)",
+      "skip_cases": "OR(AND(FLAG=1, LOADSET=\"A\"), AND(FLAG=3, LOADSET=\"B\"))",
+      "cases": { "count": "Loadcases!$C$1", "id": "INDEX(Frame_Loads!$2:$2, 16+3*(J-1))&\"\"" },
+      "drivers": [
+        { "cell": "Section_Analysis!K60", "value": "ID" },
+        { "cell": "Section_Analysis!K61", "value": "LOADSET" },
+        { "cell": "Section_Analysis!K62", "value": "CASE_ID", "per_case": true }
+      ],
+      "outputs": [
+        { "source": "Section_Analysis!D59:D70", "sheet": "MS",                  "row": "((I-1)*2+(K-1))*12+5", "col": "5", "step": [1, 0], "case_step": [0, 1] },
+        { "source": "Section_Analysis!D77:D80", "sheet": "Load_Output",         "row": "(I-1)*2+K+3", "col": "4", "step": [0, 1], "case_step": [0, 4] },
+        { "source": "Section_Analysis!F77:F80", "sheet": "CG_Load_Output",      "row": "(I-1)*2+K+3", "col": "4", "step": [0, 1], "case_step": [0, 4] },
+        { "source": "Section_Analysis!F72:F75", "sheet": "Stress_Output",       "row": "(I-1)*2+K+3", "col": "4", "step": [0, 1], "case_step": [0, 4] },
+        { "source": "Section_Analysis!H72:H75", "sheet": "Gross_Stress_Output", "row": "(I-1)*2+K+3", "col": "4", "step": [0, 1], "case_step": [0, 4] },
+        { "source": "Section_Analysis!J72:J75", "sheet": "CG_Stress_Output",    "row": "(I-1)*2+K+3", "col": "4", "step": [0, 1], "case_step": [0, 4] },
+        { "source": "Section_Analysis!D83:D88", "sheet": "Geometry_Output", "row": "8+MOD(I-1,50)", "col": "IF(I<=50,2,15)",  "step": [0, 1], "when": "K=1", "ignore_skip_cases": true },
+        { "source": "Section_Analysis!G83:G88", "sheet": "Geometry_Output", "row": "8+MOD(I-1,50)", "col": "IF(I<=50,8,21)",  "step": [0, 1], "when": "K=1", "ignore_skip_cases": true },
+        { "source": "Section_Analysis!J83:J86", "sheet": "Geometry_Output", "row": "8+MOD(I-1,50)", "col": "IF(I<=50,28,41)", "step": [0, 2], "when": "K=1", "ignore_skip_cases": true },
+        { "source": "Section_Analysis!J91:J96", "sheet": "Geometry_Output", "row": "8+MOD(I-1,50)", "col": "IF(I<=50,54,67)", "step": [0, 1], "when": "K=1", "ignore_skip_cases": true }
+      ],
+      "headers": [
+        { "scope": "static", "sheet": "CG_Load_Output",      "row": "3", "col": "2", "values": ["\"Stringer\"", "\"Load set\""] },
+        { "scope": "static", "sheet": "Load_Output",         "row": "3", "col": "2", "values": ["\"Stringer\"", "\"Load set\""] },
+        { "scope": "static", "sheet": "CG_Stress_Output",    "row": "3", "col": "2", "values": ["\"Stringer\"", "\"Load set\""] },
+        { "scope": "static", "sheet": "Stress_Output",       "row": "3", "col": "2", "values": ["\"Stringer\"", "\"Load set\""] },
+        { "scope": "static", "sheet": "Gross_Stress_Output", "row": "3", "col": "2", "values": ["\"Stringer\"", "\"Load set\""] },
+        { "scope": "static", "sheet": "MS",                  "row": "3", "col": "2", "values": ["\"Stringer\"", "\"Load set\"", "\"MS case\""] },
+        { "scope": "case", "sheet": "CG_Load_Output",      "row": "2", "col": "4", "values": ["CASE_ID"], "case_step": [0, 4] },
+        { "scope": "case", "sheet": "Load_Output",         "row": "2", "col": "4", "values": ["CASE_ID"], "case_step": [0, 4] },
+        { "scope": "case", "sheet": "CG_Stress_Output",    "row": "2", "col": "4", "values": ["CASE_ID"], "case_step": [0, 4] },
+        { "scope": "case", "sheet": "Stress_Output",       "row": "2", "col": "4", "values": ["CASE_ID"], "case_step": [0, 4] },
+        { "scope": "case", "sheet": "Gross_Stress_Output", "row": "2", "col": "4", "values": ["CASE_ID"], "case_step": [0, 4] },
+        { "scope": "case", "sheet": "MS",                  "row": "3", "col": "5", "values": ["CASE_ID"], "case_step": [0, 1] },
+        { "scope": "case", "sheet": "CG_Load_Output",      "row": "3", "col": "4", "values": ["\"P_ic_cg\"", "\"P_fc_cg\"", "\"P_sk_cg\"", "\"P_web_cg\""], "case_step": [0, 4] },
+        { "scope": "case", "sheet": "Load_Output",         "row": "3", "col": "4", "values": ["\"P_ic\"", "\"P_fc\"", "\"P_sk\"", "\"P_web\""], "case_step": [0, 4] },
+        { "scope": "case", "sheet": "CG_Stress_Output",    "row": "3", "col": "4", "values": ["\"f_ic_cg\"", "\"f_fc_cg\"", "\"f_sk_cg\"", "\"f_web_cg\""], "case_step": [0, 4] },
+        { "scope": "case", "sheet": "Stress_Output",       "row": "3", "col": "4", "values": ["\"f_ic\"", "\"f_fc\"", "\"f_sk\"", "\"f_web\""], "case_step": [0, 4] },
+        { "scope": "case", "sheet": "Gross_Stress_Output", "row": "3", "col": "4", "values": ["\"f_ic\"", "\"f_fc\"", "\"f_sk\"", "\"f_web\""], "case_step": [0, 4] },
+        { "scope": "job", "sheet": "CG_Load_Output",      "row": "(I-1)*2+K+3", "col": "2", "values": ["ID", "LOADSET"] },
+        { "scope": "job", "sheet": "Load_Output",         "row": "(I-1)*2+K+3", "col": "2", "values": ["ID", "LOADSET"] },
+        { "scope": "job", "sheet": "CG_Stress_Output",    "row": "(I-1)*2+K+3", "col": "2", "values": ["ID", "LOADSET"] },
+        { "scope": "job", "sheet": "Stress_Output",       "row": "(I-1)*2+K+3", "col": "2", "values": ["ID", "LOADSET"] },
+        { "scope": "job", "sheet": "Gross_Stress_Output", "row": "(I-1)*2+K+3", "col": "2", "values": ["ID", "LOADSET"] },
+        { "scope": "job", "sheet": "MS", "row": "((I-1)*2+(K-1))*12+5", "col": "2", "values": ["ID", "LOADSET"] },
+        { "scope": "job", "sheet": "MS", "row": "((I-1)*2+(K-1))*12+5", "col": "4", "step": [1, 0], "values": [
+          "LEFT(Section_Analysis!$C$59,LEN(Section_Analysis!$C$59)-2)", "LEFT(Section_Analysis!$C$60,LEN(Section_Analysis!$C$60)-2)",
+          "LEFT(Section_Analysis!$C$61,LEN(Section_Analysis!$C$61)-2)", "LEFT(Section_Analysis!$C$62,LEN(Section_Analysis!$C$62)-2)",
+          "LEFT(Section_Analysis!$C$63,LEN(Section_Analysis!$C$63)-2)", "LEFT(Section_Analysis!$C$64,LEN(Section_Analysis!$C$64)-2)",
+          "LEFT(Section_Analysis!$C$65,LEN(Section_Analysis!$C$65)-2)", "LEFT(Section_Analysis!$C$66,LEN(Section_Analysis!$C$66)-2)",
+          "LEFT(Section_Analysis!$C$67,LEN(Section_Analysis!$C$67)-2)", "LEFT(Section_Analysis!$C$68,LEN(Section_Analysis!$C$68)-2)",
+          "LEFT(Section_Analysis!$C$69,LEN(Section_Analysis!$C$69)-2)", "LEFT(Section_Analysis!$C$70,LEN(Section_Analysis!$C$70)-2)"] }
+      ]
+    },
+    {
+      "name": "joints",
+      "freeze": ["Shear_Tie_Analysis", "Geometry_Output"],
+      "clear": ["MS_Joint"],
+      "set": [["VBA_Config!F4", "\"Y\""]],
+      "after": [["VBA_Config!F4", "\"N\""]],
+      "loops": [{ "var": "I", "from": "1", "to": "100" }],
+      "vars": [
+        ["FLAG", "N(INDEX(Node_Map!$A:$A, 55+I))"],
+        ["ID", "INDEX(Node_Map!$B:$B, 55+I)&\"\""],
+        ["OPT", "VBA_Config!$C$5"],
+        ["LOADSET", "IF(OR(OPT=1, I<=50), \"A\", \"B\")"]
+      ],
+      "skip": "OR(ID=\"\", FLAG=4)",
+      "cases": { "count": "Loadcases!$C$1", "id": "INDEX(Frame_Loads!$2:$2, 16+3*(J-1))&\"\"" },
+      "drivers": [
+        { "cell": "Section_Analysis!K60", "value": "ID" },
+        { "cell": "Section_Analysis!K61", "value": "LOADSET" },
+        { "cell": "Section_Analysis!K62", "value": "CASE_ID", "per_case": true }
+      ],
+      "outputs": [
+        { "source": "Joint_Analysis!D58:D64", "sheet": "MS_Joint", "row": "(I-1)*7+5", "col": "5", "step": [1, 0], "case_step": [0, 1] }
+      ],
+      "headers": [
+        { "scope": "static", "sheet": "MS_Joint", "row": "3", "col": "2", "values": ["\"Stringer\"", "\"Load set\"", "\"MS case\""] },
+        { "scope": "case", "sheet": "MS_Joint", "row": "3", "col": "5", "values": ["CASE_ID"], "case_step": [0, 1] },
+        { "scope": "job", "sheet": "MS_Joint", "row": "(I-1)*7+5", "col": "2", "values": ["ID"] },
+        { "scope": "job", "sheet": "MS_Joint", "row": "(I-1)*7+5", "col": "4", "step": [1, 0],
+          "values": ["\"MSicf1\"", "\"MSicf2\"", "\"MSfcf1\"", "\"MSfcf2\"", "\"MSskf1\"", "\"N_str_ic\"", "\"N_str_fc\""] }
+      ]
+    },
+    {
+      "name": "shear_ties",
+      "freeze": ["Diagrams", "Stress_Load_Output"],
+      "clear": ["MS_Shear_Tie"],
+      "set": [["VBA_Config!I4", "\"Y\""]],
+      "after": [["VBA_Config!I4", "\"N\""]],
+      "loops": [{ "var": "I", "from": "1", "to": "100" }],
+      "vars": [["ID", "INDEX(Node_Map!$B:$B, 55+I)&\"\""]],
+      "skip": "ID=\"\"",
+      "drivers": [{ "cell": "Section_Analysis!K60", "value": "ID" }],
+      "outputs": [
+        { "source": "Shear_Tie_Analysis!D59:D67", "sheet": "MS_Shear_Tie", "row": "I+4", "col": "4", "step": [0, 1] }
+      ],
+      "headers": [
+        { "scope": "static", "sheet": "MS_Shear_Tie", "row": "3", "col": "2",
+          "values": ["\"Stringer\"", "\"Loadcase\"", "\"MSsh1\"", "\"MSsh2\"", "\"MSsh3\"", "\"MSsh4\"", "\"MSsh5\"", "\"MSsh6\"", "\"MSsh7\"", "\"MSsh8\"", "\"MSsh9\""] },
+        { "scope": "job", "sheet": "MS_Shear_Tie", "row": "I+4", "col": "2", "values": ["ID", "Shear_Tie_Analysis!$K$62&\"\""] }
+      ]
+    }
+  ]
+}

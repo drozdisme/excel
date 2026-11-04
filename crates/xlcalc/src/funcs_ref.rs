@@ -132,7 +132,10 @@ impl<'m> Job<'m> {
                     r = 1.0;
                 }
             }
-            if r < 0.0 || c < 0.0 || r as usize > rows || c as usize > cols {
+            if r < 0.0 || c < 0.0 {
+                return Err(XlError::Value);
+            }
+            if r as usize > rows || c as usize > cols {
                 return Err(XlError::Ref);
             }
             Ok((r as usize, c as usize))

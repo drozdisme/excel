@@ -4,8 +4,10 @@
 pub mod ast;
 mod lexer;
 mod parser;
+mod unparse;
 
 pub use ast::*;
+pub use unparse::{references, to_a1};
 pub use parser::{normalize_fn, normalize_name, parse};
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]

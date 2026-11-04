@@ -61,6 +61,24 @@ impl<'m> Job<'m> {
                 for e in args {
                     parts.push(self.arr_arg(e, cx)?);
                 }
+                // Excel: a scalar error argument makes the whole result that error (per case).
+                let n = self.n;
+                let scalar_err = |i: usize| -> Option<Scalar> {
+                    parts.iter().filter(|p| p.rows == 1 && p.cols == 1).find_map(|p| match p.data[0].get(i) {
+                        e @ Scalar::Err(_) => Some(e),
+                        _ => None,
+                    })
+                };
+                let any_varying = parts.iter().any(|p| p.rows == 1 && p.cols == 1 && !p.data[0].is_uniform());
+                if !any_varying {
+                    if let Some(e) = scalar_err(0) {
+                        return Ok(Some(Value::S(Lanes::Uniform(e))));
+                    }
+                } else if (0..n).any(|i| scalar_err(i).is_some()) {
+                    let errs: Vec<Option<Scalar>> = (0..n).map(scalar_err).collect();
+                    let poison = |l: &Lanes| -> Lanes { Lanes::from_vec((0..n).map(|i| errs[i].clone().unwrap_or_else(|| l.get(i))).collect()) };
+                    parts = parts.iter().map(|p| Arc::new(Array::new(p.rows, p.cols, p.data.iter().map(poison).collect()))).collect();
+                }
                 if name == "VSTACK" {
                     let cols = parts.iter().map(|p| p.cols).max().unwrap_or(1);
                     let mut d = Vec::new();

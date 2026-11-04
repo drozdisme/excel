@@ -33,6 +33,9 @@ pub struct Model {
     computed: Vec<BTreeSet<(u32, u32)>>,
     /// Used extent per sheet (rows, cols) including formulas.
     extent: Vec<(u32, u32)>,
+    /// Dynamic-array anchors per sheet with the furthest row/col they could spill to: their
+    /// spill size is only known after evaluation (the file records the last one only).
+    da_anchors: Vec<Vec<(Cell, u32, u32)>>,
 }
 
 impl Model {
@@ -40,6 +43,7 @@ impl Model {
         let mut exprs = Vec::new();
         let mut computed = Vec::new();
         let mut extent = Vec::new();
+        let mut da_anchors = Vec::new();
         let mut errors = Vec::new();
         for s in &wb.sheets {
             let mut groups: HashMap<(Cell, *const u8), Arc<Expr>> = HashMap::new();
@@ -78,6 +82,31 @@ impl Model {
             exprs.push(map);
             computed.push(set);
             extent.push((mr, mc));
+            let mut das: Vec<Cell> =
+                s.formulas.iter().filter(|(_, f)| matches!(f.kind, FormulaKind::Array { dynamic: true, .. })).map(|(c, _)| *c).collect();
+            das.sort_by_key(|c| (c.row, c.col));
+            // Free run below and to the right of each anchor bounds where it could ever spill.
+            let free = |a: &Cell, x: Cell| -> bool {
+                x == *a
+                    || s.array_members.get(&x) == Some(a)
+                    || (!s.formulas.contains_key(&x) && !s.array_members.contains_key(&x) && *s.value(x) == xlmodel::CellValue::Empty)
+            };
+            let bounded: Vec<(Cell, u32, u32)> = das
+                .iter()
+                .map(|a| {
+                    let mut down = 0;
+                    while down < 5000 && a.row + down < MAX_ROW && free(a, Cell { row: a.row + down + 1, col: a.col }) {
+                        down += 1;
+                    }
+                    let mut right = 0;
+                    while right < 1000 && a.col + right < MAX_COL && free(a, Cell { row: a.row, col: a.col + right + 1 }) {
+                        right += 1;
+                    }
+                    (*a, a.row + down, a.col + right)
+                })
+                .filter(|(a, r, c)| *r > a.row || *c > a.col)
+                .collect();
+            da_anchors.push(bounded);
         }
         let mut names = HashMap::new();
         for n in &wb.names {
@@ -85,9 +114,41 @@ impl Model {
                 names.insert((n.scope, n.name.to_ascii_uppercase()), Arc::new(e));
             }
         }
-        Ok(Model { wb, exprs, names, computed, extent })
+        Ok(Model { wb, exprs, names, computed, extent, da_anchors })
     }
 
+    /// Dynamic-array anchors that could spill onto `c`: up-left of it with nothing but empty
+    /// cells (or their own recorded spill) in between, nearest first.
+    fn spill_candidates(&self, sheet: usize, c: Cell) -> Vec<Cell> {
+        let sh = &self.wb.sheets[sheet];
+        let mut out: Vec<Cell> = self.da_anchors[sheet]
+            .iter()
+            .filter(|(a, mr, mc)| a.row <= c.row && a.col <= c.col && c.row <= *mr && c.col <= *mc && (a.row, a.col) != (c.row, c.col))
+            .map(|(a, _, _)| a)
+            .filter(|a| {
+                for row in a.row..=c.row {
+                    for col in a.col..=c.col {
+                        let x = Cell { row, col };
+                        if x == **a {
+                            continue;
+                        }
+                        let own = sh.array_members.get(&x) == Some(a);
+                        if !own && (sh.formulas.contains_key(&x) || sh.array_members.contains_key(&x) || *sh.value(x) != xlmodel::CellValue::Empty) {
+                            return false;
+                        }
+                    }
+                }
+                true
+            })
+            .copied()
+            .collect();
+        out.sort_by_key(|a| std::cmp::Reverse((a.row, a.col)));
+        out
+    }
+
+    pub fn formula_expr(&self, sheet: usize, c: Cell) -> Option<Arc<Expr>> {
+        self.exprs[sheet].get(&c).cloned()
+    }
     pub fn sheet_index(&self, name: &str) -> Option<usize> {
         self.wb.sheet_index(name)
     }
@@ -113,6 +174,42 @@ impl Model {
     }
 }
 
+/// Values written to a sheet by an earlier batch stage (or cleared), layered over the model.
+#[derive(Default, Clone, Debug)]
+pub struct SheetPatch {
+    /// Dense written cells: rows[r-1][c-1]; `None` = not written.
+    pub rows: Vec<Vec<Option<xlmodel::CellValue>>>,
+    /// Cleared rectangles (cells read as empty unless written).
+    pub cleared: Vec<Rect>,
+    /// Whole sheet cleared.
+    pub cleared_all: bool,
+}
+
+impl SheetPatch {
+    pub fn set(&mut self, c: Cell, v: xlmodel::CellValue) {
+        let (r, col) = (c.row as usize - 1, c.col as usize - 1);
+        if self.rows.len() <= r {
+            self.rows.resize_with(r + 1, Vec::new);
+        }
+        let row = &mut self.rows[r];
+        if row.len() <= col {
+            row.resize(col + 1, None);
+        }
+        row[col] = Some(v);
+    }
+    pub fn written(&self, c: Cell) -> Option<&xlmodel::CellValue> {
+        self.rows.get(c.row as usize - 1).and_then(|r| r.get(c.col as usize - 1)).and_then(|v| v.as_ref())
+    }
+    pub fn is_cleared(&self, c: Cell) -> bool {
+        self.cleared_all || self.cleared.iter().any(|r| r.contains(c))
+    }
+    pub fn extent(&self) -> (u32, u32) {
+        (self.rows.len() as u32, self.rows.iter().map(|r| r.len()).max().unwrap_or(0) as u32)
+    }
+}
+
+pub type Overlay = HashMap<usize, SheetPatch>;
+
 #[derive(Clone, Copy, Debug)]
 pub struct Ctx {
     pub sheet: usize,
@@ -135,6 +232,8 @@ pub struct Job<'m> {
     /// Sheets whose formulas are frozen at their saved values (Worksheet.EnableCalculation=False).
     frozen: HashSet<usize>,
     cleared: HashSet<usize>,
+    overlay: Option<Arc<Overlay>>,
+    spill_cache: HashMap<(usize, Cell), Vec<Cell>>,
     pub evaluated_cells: usize,
 }
 
@@ -152,8 +251,29 @@ impl<'m> Job<'m> {
             lookup_cache: HashMap::new(),
             frozen: HashSet::new(),
             cleared: HashSet::new(),
+            overlay: None,
+            spill_cache: HashMap::new(),
             evaluated_cells: 0,
         }
+    }
+
+    pub fn set_overlay(&mut self, o: Arc<Overlay>) {
+        self.overlay = Some(o);
+    }
+
+    /// Bind a variable visible to formulas evaluated by this job (like a LET name).
+    pub fn bind(&mut self, name: &str, v: Value) {
+        self.env.push((Arc::from(name.to_ascii_uppercase()), v));
+    }
+    pub fn unbind_all(&mut self) {
+        self.env.clear();
+    }
+
+    /// Evaluate a standalone formula (e.g. from a batch contract) in the context of `sheet`.
+    pub fn eval_expr(&mut self, e: &Expr, sheet: usize) -> R<Lanes> {
+        let cx = Ctx { sheet, cell: Cell { row: 1, col: 1 }, array: false };
+        let v = self.eval(e, &cx)?;
+        self.to_lanes(v, &cx)
     }
 
     pub fn set_override(&mut self, sheet: usize, cell: Cell, v: Lanes) {
@@ -185,6 +305,14 @@ impl<'m> Job<'m> {
         }
         if let Some(v) = self.memo.get(&(sheet, c)) {
             return Ok(v.clone());
+        }
+        if let Some(p) = self.overlay.as_ref().and_then(|o| o.get(&sheet)) {
+            if let Some(v) = p.written(c) {
+                return Ok(Lanes::Uniform(Scalar::from(v)));
+            }
+            if p.is_cleared(c) {
+                return Ok(Lanes::Uniform(Scalar::Empty));
+            }
         }
         let sh = &self.m.wb.sheets[sheet];
         let frozen = self.frozen.contains(&sheet);
@@ -218,7 +346,38 @@ impl<'m> Job<'m> {
         if self.cleared.contains(&sheet) {
             return Ok(Lanes::Uniform(Scalar::Empty));
         }
-        Ok(Lanes::Uniform(Scalar::from(sh.value(c))))
+        let v = sh.value(c);
+        if *v == xlmodel::CellValue::Empty && !frozen && !self.m.da_anchors[sheet].is_empty() {
+            if let Some(l) = self.spilled_into(sheet, c)? {
+                return Ok(l);
+            }
+        }
+        Ok(Lanes::Uniform(Scalar::from(v)))
+    }
+
+    /// Value a dynamic array spills into an otherwise empty cell, if any.
+    fn spilled_into(&mut self, sheet: usize, c: Cell) -> R<Option<Lanes>> {
+        let cands = match self.spill_cache.get(&(sheet, c)) {
+            Some(v) => v.clone(),
+            None => {
+                let v = self.m.spill_candidates(sheet, c);
+                self.spill_cache.insert((sheet, c), v.clone());
+                v
+            }
+        };
+        for a in cands {
+            if self.active.contains(&(sheet, a)) {
+                continue;
+            }
+            let arr = self.anchor(sheet, a)?;
+            let (r, col) = ((c.row - a.row) as usize, (c.col - a.col) as usize);
+            if r < arr.rows && col < arr.cols {
+                let v = arr.get(r, col).clone();
+                self.memo.insert((sheet, c), v.clone());
+                return Ok(Some(v));
+            }
+        }
+        Ok(None)
     }
 
     fn wrap(&self, e: EvalError, sheet: usize, c: Cell) -> EvalError {
@@ -240,8 +399,28 @@ impl<'m> Job<'m> {
         let cx = Ctx { sheet, cell: a, array: true };
         let res = self.eval(&e, &cx).and_then(|v| self.to_array(v));
         self.active.remove(&(sheet, a));
-        let arr = res.map_err(|e| self.wrap(e, sheet, a))?;
+        let mut arr = res.map_err(|e| self.wrap(e, sheet, a))?;
         let n = self.n;
+        // A dynamic array that would overwrite anything (or leave the sheet) shows #SPILL!.
+        let sh = &self.m.wb.sheets[sheet];
+        if let Some(FormulaKind::Array { dynamic: true, .. }) = sh.formulas.get(&a).map(|f| &f.kind) {
+            if arr.rows > 1 || arr.cols > 1 {
+                let (r2, c2) = (a.row as usize + arr.rows - 1, a.col as usize + arr.cols - 1);
+                let blocked = r2 > MAX_ROW as usize
+                    || c2 > MAX_COL as usize
+                    || (a.row..=r2 as u32).any(|row| {
+                        (a.col..=c2 as u32).any(|col| {
+                            let x = Cell { row, col };
+                            x != a
+                                && sh.array_members.get(&x) != Some(&a)
+                                && (sh.formulas.contains_key(&x) || sh.array_members.contains_key(&x) || *sh.value(x) != xlmodel::CellValue::Empty)
+                        })
+                    });
+                if blocked {
+                    arr = Arc::new(Array::scalar(Lanes::Uniform(Scalar::Err(XlError::Spill))));
+                }
+            }
+        }
         let arr = Arc::new(Array::new(
             arr.rows,
             arr.cols,
@@ -290,7 +469,12 @@ impl<'m> Job<'m> {
         if let Some(a) = self.range_memo.get(r) {
             return Ok(a.clone());
         }
-        let (mr, mc) = self.m.extent(r.sheet);
+        let (mut mr, mut mc) = self.m.extent(r.sheet);
+        if let Some(p) = self.overlay.as_ref().and_then(|o| o.get(&r.sheet)) {
+            let (pr, pc) = p.extent();
+            mr = mr.max(pr);
+            mc = mc.max(pc);
+        }
         let r2 = r.rect.r2.min(mr.max(r.rect.r1));
         let c2 = r.rect.c2.min(mc.max(r.rect.c1));
         let (rows, cols) = ((r2 - r.rect.r1 + 1) as usize, (c2 - r.rect.c1 + 1) as usize);
