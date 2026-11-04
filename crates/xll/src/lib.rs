@@ -294,12 +294,11 @@ fn call_s_workbook(book: &str) -> Result<XlResult, i32> {
 }
 
 fn schedule_poll() {
-    if let Ok(now) = excel(xlfNow, &mut []) {
-        if let Some(t) = now.num() {
+    if let Ok(now) = excel(xlfNow, &mut [])
+        && let Some(t) = now.num() {
             let mut s = XlStr::new("BC_Poll");
             let _ = excel(xlcOnTime, &mut [num(t + 0.5 / 86400.0), s.oper()]);
         }
-    }
 }
 
 fn start(i: usize) -> i32 {

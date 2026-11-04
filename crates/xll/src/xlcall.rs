@@ -1,5 +1,5 @@
 //! Minimal Excel C API (XLCALL) binding: XLOPER12 layout, constants and the Excel12 call.
-#![allow(non_upper_case_globals, non_camel_case_types, dead_code)]
+#![allow(non_upper_case_globals, non_camel_case_types, dead_code, clippy::upper_case_acronyms)]
 use std::ffi::c_void;
 
 pub type RW = i32;
@@ -130,7 +130,7 @@ unsafe extern "system" {
 
 fn callback() -> Option<MdCallBack12> {
     static CB: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
-    let p = *CB.get_or_init(|| unsafe { GetProcAddress(GetModuleHandleW(std::ptr::null()), b"MdCallBack12\0".as_ptr()) as usize });
+    let p = *CB.get_or_init(|| unsafe { GetProcAddress(GetModuleHandleW(std::ptr::null()), c"MdCallBack12".as_ptr() as *const u8) as usize });
     // SAFETY: MdCallBack12 is exported by EXCEL.EXE with this signature.
     (p != 0).then(|| unsafe { std::mem::transmute::<usize, MdCallBack12>(p) })
 }

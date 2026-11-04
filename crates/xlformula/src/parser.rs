@@ -135,16 +135,14 @@ impl Parser {
         match self.next() {
             Tok::Number(n) => {
                 // Row range like 3:5 (digits only, no spaces around ':').
-                if *self.peek() == Tok::Colon && n.fract() == 0.0 {
-                    if let Some(Tok::Number(m)) = self.t.get(self.i + 1).map(|t| t.tok.clone()) {
-                        if !self.t[self.i].space_before && !self.t[self.i + 1].space_before && m.fract() == 0.0 {
+                if *self.peek() == Tok::Colon && n.fract() == 0.0
+                    && let Some(Tok::Number(m)) = self.t.get(self.i + 1).map(|t| t.tok.clone())
+                        && !self.t[self.i].space_before && !self.t[self.i + 1].space_before && m.fract() == 0.0 {
                             self.next();
                             self.next();
                             let (r1, r2) = (self.row_coord(n as u32, false), self.row_coord(m as u32, false));
                             return Ok(Expr::Ref(Reference { sheet: None, area: Area::Rows { r1, r2 } }));
                         }
-                    }
-                }
                 Ok(Expr::Number(n))
             }
             Tok::Text(s) => Ok(Expr::Text(Arc::from(s))),
@@ -247,32 +245,27 @@ impl Parser {
         }
         // Cell reference, possibly the start of a range A1:B2.
         if let Some((row, col)) = self.cell_coords(&w) {
-            if *self.peek() == Tok::Colon && !self.tok().space_before {
-                if let Some(Tok::Word(w2)) = self.t.get(self.i + 1).map(|t| t.tok.clone()) {
-                    if let Some((r2, c2)) = self.cell_coords(&w2) {
+            if *self.peek() == Tok::Colon && !self.tok().space_before
+                && let Some(Tok::Word(w2)) = self.t.get(self.i + 1).map(|t| t.tok.clone())
+                    && let Some((r2, c2)) = self.cell_coords(&w2) {
                         self.next();
                         self.next();
                         return Ok(Expr::Ref(Reference { sheet, area: Area::Range { r1: row, c1: col, r2, c2 } }));
                     }
-                }
-            }
             return Ok(Expr::Ref(Reference { sheet, area: Area::Cell { row, col } }));
         }
         // Column range A:C.
-        if let Some(c1) = self.col_only(&w) {
-            if *self.peek() == Tok::Colon {
-                if let Some(Tok::Word(w2)) = self.t.get(self.i + 1).map(|t| t.tok.clone()) {
-                    if let Some(c2) = self.col_only(&w2) {
+        if let Some(c1) = self.col_only(&w)
+            && *self.peek() == Tok::Colon
+                && let Some(Tok::Word(w2)) = self.t.get(self.i + 1).map(|t| t.tok.clone())
+                    && let Some(c2) = self.col_only(&w2) {
                         self.next();
                         self.next();
                         return Ok(Expr::Ref(Reference { sheet, area: Area::Cols { c1, c2 } }));
                     }
-                }
-            }
-        }
         // Row range with '$': $3:$5.
-        if let Some(r1) = self.row_only(&w) {
-            if *self.peek() == Tok::Colon {
+        if let Some(r1) = self.row_only(&w)
+            && *self.peek() == Tok::Colon {
                 let next = self.t.get(self.i + 1).map(|t| t.tok.clone());
                 let r2 = match next {
                     Some(Tok::Word(w2)) => self.row_only(&w2),
@@ -285,7 +278,6 @@ impl Parser {
                     return Ok(Expr::Ref(Reference { sheet, area: Area::Rows { r1, r2 } }));
                 }
             }
-        }
         if let Some(s) = sheet {
             // Sheet-scoped defined name: keep as name qualified with the sheet.
             return Ok(Expr::Name(Arc::from(format!("{}!{}", s, normalize_name(&w)))));

@@ -84,7 +84,7 @@ fn render(n: f64, sec: &str) -> Result<String, XlError> {
     let mut quoted = false;
     let mut percent = 0;
     while let Some(c) = chars.next() {
-        let target = if pattern.is_empty() { &mut prefix } else if in_pattern_done { &mut suffix } else { &mut suffix };
+        let target = if pattern.is_empty() { &mut prefix } else { &mut suffix };
         match c {
             '"' => quoted = !quoted,
             _ if quoted => target.push(c),

@@ -262,8 +262,8 @@ impl<'m> Job<'m> {
                         }
                         match mode {
                             Mode::Exact { wild, last } => {
-                                if let (true, Scalar::Text(t)) = (wild, s) {
-                                    if has_wildcard(t) {
+                                if let (true, Scalar::Text(t)) = (wild, s)
+                                    && has_wildcard(t) {
                                         if let Some(p) = memo.get(&**t) {
                                             return *p;
                                         }
@@ -273,7 +273,6 @@ impl<'m> Job<'m> {
                                         memo.insert(t.to_string(), p);
                                         return p;
                                     }
-                                }
                                 idx.exact(s, last).ok_or(XlError::NA)
                             }
                             m => search(s, &idx.values, m),
@@ -404,8 +403,8 @@ impl<'m> Job<'m> {
             };
             RefRange { sheet: r.sheet, rect }
         };
-        if not_found.is_none() || pos.iter().all(|p| p.is_ok()) {
-            if let Value::R(r) = &ret {
+        if (not_found.is_none() || pos.iter().all(|p| p.is_ok()))
+            && let Value::R(r) = &ret {
                 let refs: Vec<Result<RefRange, XlError>> = pos.iter().map(|p| p.map(|p| pick_ref(r, p))).collect();
                 if refs.len() == 1 {
                     return Ok(match refs[0] {
@@ -415,7 +414,6 @@ impl<'m> Job<'m> {
                 }
                 return Ok(self.lane_refs(refs));
             }
-        }
         let arr = self.to_array(ret)?;
         let width = if vertical { arr.cols } else { arr.rows };
         let mut data = Vec::with_capacity(width);
@@ -630,11 +628,10 @@ impl<'m> Job<'m> {
         if args.is_empty() || args.len() > 2 {
             return Ok(Value::err(XlError::Value));
         }
-        if let Some(e) = args.get(1) {
-            if !matches!(e, Expr::Missing) && !matches!(self.uniform_num(e, cx)?, Ok(v) if v != 0.0) {
+        if let Some(e) = args.get(1)
+            && !matches!(e, Expr::Missing) && !matches!(self.uniform_num(e, cx)?, Ok(v) if v != 0.0) {
                 return unsupported("INDIRECT with R1C1 references");
             }
-        }
         let t = self.eval(&args[0], cx)?;
         let t = self.to_lanes(t, cx)?;
         let mut cache: HashMap<String, Result<RefRange, XlError>> = HashMap::new();
@@ -648,7 +645,8 @@ impl<'m> Job<'m> {
                     if let Some(r) = cache.get(&*text) {
                         *r
                     } else {
-                        let r = match xlformula::parse(&text, cx.cell) {
+                        // Text references are absolute positions: parse and resolve both at A1.
+                        let r = match xlformula::parse(&text, Cell { row: 1, col: 1 }) {
                             Ok(Expr::Ref(rf)) => match self.resolve_ref(&rf, &Ctx { cell: Cell { row: 1, col: 1 }, ..*cx }) {
                                 Value::R(r) => Ok(r),
                                 _ => Err(XlError::Ref),
@@ -718,14 +716,12 @@ impl<'m> Job<'m> {
                 } else {
                     format!("R{}C{}", if ra { r.to_string() } else { format!("[{r}]") }, if ca { c.to_string() } else { format!("[{c}]") })
                 };
-                if has_sheet {
-                    if let Ok(sh) = s[4].to_text() {
-                        if !sh.is_empty() {
+                if has_sheet
+                    && let Ok(sh) = s[4].to_text()
+                        && !sh.is_empty() {
                             let quote = sh.chars().any(|ch| !(ch.is_alphanumeric() || ch == '_' || ch == '.'));
                             return Scalar::text(if quote { format!("'{}'!{body}", sh.replace('\'', "''")) } else { format!("{sh}!{body}") });
                         }
-                    }
-                }
                 Scalar::text(body)
             })
         })
@@ -755,7 +751,7 @@ impl<'m> Job<'m> {
                 (None, args.chunks(2).map(|p| (&p[0], &p[1])).collect())
             }
             _ => {
-                if args.len() < 3 || args.len() % 2 == 0 {
+                if args.len() < 3 || args.len().is_multiple_of(2) {
                     return Ok(Value::err(XlError::Value));
                 }
                 (Some(&args[0]), args[1..].chunks(2).map(|p| (&p[0], &p[1])).collect())
@@ -765,11 +761,10 @@ impl<'m> Job<'m> {
         let mut first_ref: Option<RefRange> = None;
         for (re, _) in &pairs {
             let v = self.eval(re, cx)?;
-            if first_ref.is_none() {
-                if let Value::R(r) = &v {
+            if first_ref.is_none()
+                && let Value::R(r) = &v {
                     first_ref = Some(*r);
                 }
-            }
             ranges.push(self.to_array(v)?);
         }
         let target = match target_expr {
@@ -777,14 +772,13 @@ impl<'m> Job<'m> {
             Some(e) => {
                 let mut v = self.eval(e, cx)?;
                 // SUMIF/AVERAGEIF: sum_range takes the shape of range from its top-left.
-                if matches!(name, "SUMIF" | "AVERAGEIF") {
-                    if let (Value::R(t), Some(r0)) = (&v, first_ref) {
+                if matches!(name, "SUMIF" | "AVERAGEIF")
+                    && let (Value::R(t), Some(r0)) = (&v, first_ref) {
                         v = Value::R(RefRange {
                             sheet: t.sheet,
                             rect: Rect { r2: t.rect.r1 + r0.rect.rows() - 1, c2: t.rect.c1 + r0.rect.cols() - 1, ..t.rect },
                         });
                     }
-                }
                 Some(self.to_array(v)?)
             }
         };
@@ -835,11 +829,10 @@ impl<'m> Job<'m> {
                 return Scalar::Err(*e);
             }
             let key: Option<Vec<String>> = data_uniform.then(|| cs.iter().map(|c| format!("{c:?}")).collect());
-            if let Some(k) = &key {
-                if let Some(v) = crit_cache.get(k) {
+            if let Some(k) = &key
+                && let Some(v) = crit_cache.get(k) {
                     return v.clone();
                 }
-            }
             let parsed: Vec<Criterion> = cs.iter().map(Criterion::parse).collect();
             let (mut count, mut sum) = (0usize, 0.0f64);
             let (mut min, mut max) = (f64::INFINITY, f64::NEG_INFINITY);

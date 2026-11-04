@@ -1,0 +1,11 @@
+[package]
+name = "batchcalc-setup"
+version = "1.0.0"
+edition = "2024"
+description = "BatchCalc per-user installer"
+
+[[bin]]
+name = "BatchCalc-Setup"
+path = "src/main.rs"
+
+

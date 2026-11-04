@@ -101,7 +101,7 @@ fn place(base: (i64, i64), step: [i32; 2], k: usize, case_step: Option<[i32; 2]>
     let (cs_r, cs_c) = case_step.map(|c| (c[0] as i64, c[1] as i64)).unwrap_or((0, 0));
     let r = base.0 + step[0] as i64 * k as i64 + cs_r * j as i64;
     let c = base.1 + step[1] as i64 * k as i64 + cs_c * j as i64;
-    ((1..=1_048_576).contains(&r) && (1..=16_384).contains(&c)).then(|| Cell { row: r as u32, col: c as u32 })
+    ((1..=1_048_576).contains(&r) && (1..=16_384).contains(&c)).then_some(Cell { row: r as u32, col: c as u32 })
 }
 
 struct Compiled {

@@ -13,12 +13,11 @@ const USAGE: &str = "usage: batchcalc run WORKBOOK [--command NAME] [--contract 
 
 fn contract_dirs() -> Vec<PathBuf> {
     let mut v = Vec::new();
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(d) = exe.parent() {
+    if let Ok(exe) = std::env::current_exe()
+        && let Some(d) = exe.parent() {
             v.push(d.join("contracts"));
             v.push(d.join("..").join("..").join("contracts"));
         }
-    }
     v.push(PathBuf::from("contracts"));
     v
 }
@@ -66,7 +65,7 @@ fn main() {
             }
             opts.case_limit = flag("--cases").map(|c| c.parse().unwrap_or_else(|_| fail("bad --cases")));
             opts.progress = Some(Arc::new(|p: &batchcalc::Progress| {
-                if p.done == p.total || p.done % 20 == 0 {
+                if p.done == p.total || p.done.is_multiple_of(20) {
                     eprint!("\r  [{}/{}] {:<12} {:>4}/{:<4}", p.stage_index + 1, p.stage_count, p.stage, p.done, p.total);
                     if p.done == p.total {
                         eprintln!();

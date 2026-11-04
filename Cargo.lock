@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "batchcalc"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "mimalloc",
  "serde",
@@ -14,6 +14,10 @@ dependencies = [
  "xlformula",
  "xlmodel",
 ]
+
+[[package]]
+name = "batchcalc-setup"
+version = "1.0.0"
 
 [[package]]
 name = "batchcalc-xll"
@@ -380,7 +384,7 @@ dependencies = [
 
 [[package]]
 name = "xlcalc"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "thiserror",
  "xlformula",
@@ -389,7 +393,7 @@ dependencies = [
 
 [[package]]
 name = "xlformula"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "thiserror",
  "xlmodel",
@@ -397,7 +401,7 @@ dependencies = [
 
 [[package]]
 name = "xlmodel"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "quick-xml",
  "thiserror",

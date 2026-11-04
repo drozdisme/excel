@@ -237,10 +237,9 @@ pub fn lex(src: &str) -> Result<Vec<Token>, ParseError> {
 }
 
 fn split_external(s: &str) -> (Option<String>, String) {
-    if let Some(rest) = s.strip_prefix('[') {
-        if let Some(end) = rest.find(']') {
+    if let Some(rest) = s.strip_prefix('[')
+        && let Some(end) = rest.find(']') {
             return (Some(format!("[{}]", &rest[..end])), rest[end + 1..].to_string());
         }
-    }
     (None, s.to_string())
 }

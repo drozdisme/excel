@@ -3,8 +3,7 @@ use crate::eval::{unsupported, Ctx, Job, R};
 use crate::lanes::{select, Lanes};
 use crate::scalar::Scalar;
 use crate::scalars::{scalar_fn, ScalarFn};
-use crate::value::{Array, Value};
-use std::sync::Arc;
+use crate::value::Value;
 use xlformula::Expr;
 use xlmodel::XlError;
 
@@ -100,11 +99,10 @@ impl<'m> Job<'m> {
         let errs = f.propagate_errors;
         self.lift(vals, cx, &|l| {
             lanewise(n, l, &|s| {
-                if errs {
-                    if let Some(Scalar::Err(e)) = s.iter().find(|x| x.is_err()) {
+                if errs
+                    && let Some(Scalar::Err(e)) = s.iter().find(|x| x.is_err()) {
                         return Scalar::Err(*e);
                     }
-                }
                 func(s)
             })
         })
@@ -230,7 +228,7 @@ impl<'m> Job<'m> {
         }
         let v = self.eval(&args[0], cx)?;
         let v = self.to_lanes(v, cx)?;
-        let has_default = args.len() % 2 == 0;
+        let has_default = args.len().is_multiple_of(2);
         let pairs = (args.len() - 1) / 2;
         let mut acc = if has_default {
             let d = self.eval(&args[args.len() - 1], cx)?;
@@ -254,7 +252,7 @@ impl<'m> Job<'m> {
     }
 
     fn f_let(&mut self, args: &[Expr], cx: &Ctx) -> R<Value> {
-        if args.len() < 3 || args.len() % 2 == 0 {
+        if args.len() < 3 || args.len().is_multiple_of(2) {
             return Ok(Value::err(XlError::Value));
         }
         let depth = self.env.len();
@@ -411,11 +409,10 @@ impl<'m> Job<'m> {
                 if ignore_empty && t.is_empty() {
                     continue;
                 }
-                if let Some(d) = &delims {
-                    if k > 0 {
+                if let Some(d) = &delims
+                    && k > 0 {
                         out.push_str(&d[(k - 1) % d.len()].to_text().unwrap_or_default());
                     }
-                }
                 out.push_str(&t);
                 k += 1;
             }

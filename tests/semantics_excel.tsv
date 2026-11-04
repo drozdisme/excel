@@ -1,0 +1,124 @@
+=1+"2"	1x1	Double=3
+=1+TRUE	1x1	Double=2
+="a"&1/3	1x1	String=a0.333333333333333
+="x"&1E+20	1x1	String=x1E+20
+="x"&0.1+0.2	1x1	String=x0.3
+="x"&123456789012345	1x1	String=x123456789012345
+=-2^2	1x1	Double=4
+=2^3^2	1x1	Double=64
+=1/0	1x1	err:#DIV/0!=
+=SQRT(-1)	1x1	err:#NUM!=
+=0^0	1x1	err:#NUM!=
+=(-8)^(1/3)	1x1	Double=-1.9999999999999998
+=ROUND(2.675,2)	1x1	Double=2.68
+=ROUND(-2.5,0)	1x1	Double=-3
+=ROUNDUP(0.285,2)	1x1	Double=0.29000000000000004
+=ROUNDDOWN(-1.234,1)	1x1	Double=-1.2
+=ROUND(1234.5678,-2)	1x1	Double=1200
+=MOD(-7,3)	1x1	Double=2
+=MOD(7,-3)	1x1	Double=-2
+=INT(-2.5)	1x1	Double=-3
+=TRUNC(-2.5)	1x1	Double=-2
+=FIXED(1234567.891)	1x1	String=1,234,567.89
+=FIXED(-0.004,2)	1x1	String=0.00
+=FIXED(1234.5,0,TRUE)	1x1	String=1235
+=FIXED(-1234.5,-2)	1x1	String=-1,200
+=TEXT(3.14159,"0.00")	1x1	String=3.14
+=TEXT(1234567,"#,##0")	1x1	String=1,234,567
+=TEXT(0.256,"0.0%")	1x1	String=25.6%
+=TEXT(7,"000")	1x1	String=007
+=LOWER("ABC")&UPPER("def")	1x1	String=abcDEF
+=LEFT("abcdef",2)&RIGHT("abcdef",2)&MID("abcdef",2,3)	1x1	String=abefbcd
+=LEN("héllo")	1x1	Double=5
+=FIND("B","abcB")	1x1	Double=4
+=SEARCH("b*d","abcde")	1x1	Double=2
+=SEARCH("z","abc")	1x1	err:#VALUE!=
+=SUBSTITUTE("a-b-c","-","+",2)	1x1	String=a-b+c
+=TRIM("  a   b  ")	1x1	String=a b
+=NUMBERVALUE("1,234.5")	1x1	Double=1234.5
+=NUMBERVALUE("")	1x1	Double=0
+=VALUE("1e3")	1x1	Double=1000
+=TEXTBEFORE("a-b-c","-",2)	1x1	String=a-b
+=TEXTAFTER("a-b-c","-",-1)	1x1	String=c
+=TEXTBEFORE("abc","x")	1x1	err:#N/A=
+=UNICHAR(9650)	1x1	String=▲
+=ATAN2(1,1)	1x1	Double=0.78539816339744828
+=DEGREES(PI())	1x1	Double=180
+=LOG(8,2)	1x1	Double=3
+=LOG10(1000)	1x1	Double=3
+=SUM(A1:A5)	1x1	Double=15
+=SUM(A1:A5,"3",TRUE)	1x1	Double=19
+=AVERAGE(A1:A6)	1x1	Double=3
+=MIN(B1:B5)	1x1	Double=0
+=MAX(A1:A5)	1x1	Double=5
+=COUNT(A1:B6)	1x1	Double=5
+=COUNTA(A1:B6)	1x1	Double=11
+=MEDIAN(A1:A5)	1x1	Double=3
+=COUNTIF(A1:A6,">2")	1x1	Double=3
+=COUNTIF(B1:B6,"b*")	1x1	Double=2
+=COUNTIF(B1:B6,"<>*")	1x1	Double=1
+=COUNTIF(A1:A6,"")	1x1	Double=0
+=SUMIF(A1:A5,">=3")	1x1	Double=12
+=SUMIFS(A1:A5,B1:B5,"?",A1:A5,"<5")	1x1	Double=6
+=MAXIFS(A1:A5,B1:B5,"a")	1x1	Double=5
+=MINIFS(A1:A5,B1:B5,"zz")	1x1	Double=0
+=AVERAGEIF(A1:A5,">1")	1x1	Double=3.5
+=MATCH(3,A1:A5,0)	1x1	Double=3
+=MATCH("C",B1:B5,0)	1x1	Double=3
+=MATCH(3.5,A1:A5)	1x1	Double=3
+=MATCH(9,A1:A5,0)	1x1	err:#N/A=
+=MATCH("b?",B1:B5,0)	1x1	Double=4
+=XMATCH(4,A1:A5)	1x1	Double=4
+=XMATCH(3.5,A1:A5,1)	1x1	Double=4
+=INDEX(A1:B5,2,2)	1x1	String=b
+=INDEX(A1:A5,0)	5x1	Double=1 | Double=2 | Double=3 | Double=4 | Double=5
+=INDEX(A1:B5,6,1)	1x1	err:#REF!=
+=VLOOKUP(3,A1:B5,2,FALSE)	1x1	String=c
+=VLOOKUP(3.7,A1:B5,2)	1x1	String=c
+=HLOOKUP(2,A1:B5,1,TRUE)	1x1	Double=1
+=XLOOKUP(4,A1:A5,B1:B5)	1x1	String=bb
+=XLOOKUP(9,A1:A5,B1:B5,"none")	1x1	String=none
+=XLOOKUP(3.5,A1:A5,B1:B5,,-1)	1x1	String=c
+=OFFSET(A1,2,1)	1x1	String=c
+=SUM(OFFSET(A1,1,0,3,1))	1x1	Double=9
+=INDIRECT("A"&3)	1x1	Double=3
+=ADDRESS(2,3)	1x1	String=$C$2
+=ADDRESS(2,3,4,TRUE,"My Sheet")	1x1	String='My Sheet'!C2
+=ROW(A3:A5)	3x1	Double=3 | Double=4 | Double=5
+=COLUMN(C2)	1x1	Double=3
+=ROWS(A1:B5)	1x1	Double=5
+=IF(A1>2,"big","small")	1x1	String=small
+=IF(FALSE,1)	1x1	Boolean=False
+=IFS(A1>5,"a",A1>0,"b")	1x1	String=b
+=IFERROR(1/0,"err")	1x1	String=err
+=IFNA(MATCH(9,A1:A5,0),"na")	1x1	String=na
+=AND(TRUE,1,"x"="x")	1x1	Boolean=True
+=OR(A1:A5>4)	1x1	Boolean=True
+=NOT(0)	1x1	Boolean=True
+=ISNUMBER(B1)&ISTEXT(B1)&ISBLANK(C1)&ISERROR(1/0)&ISNA(NA())	1x1	String=FALSETRUETRUETRUETRUE
+=CHOOSE(2,"a","b","c")	1x1	String=b
+=SWITCH(2,1,"one",2,"two","other")	1x1	String=two
+=LET(x,A2,y,x*2,y+1)	1x1	Double=5
+=SUMPRODUCT(A1:A5,A1:A5)	1x1	Double=55
+=SUMPRODUCT((A1:A5>2)*A1:A5)	1x1	Double=12
+=TREND(A1:A5,{1;2;3;4;5},6)	1x1	Double=6
+=FORECAST.LINEAR(6,A1:A5,{1;2;3;4;5})	1x1	Double=6
+=AGGREGATE(9,6,A1:A6)	1x1	Double=15
+=SEQUENCE(2,3,10,5)	2x3	Double=10 | Double=15 | Double=20 | Double=25 | Double=30 | Double=35
+=TRANSPOSE(A1:A3)	1x3	Double=1 | Double=2 | Double=3
+=HSTACK(1,"a",TRUE)	1x3	Double=1 | String=a | Boolean=True
+=VSTACK(A1:A2,B1:B2)	4x1	Double=1 | Double=2 | String=a | String=b
+=HSTACK(1,NA())	1x1	err:#N/A=
+=IFERROR(HSTACK(1,NA()),"e")	1x1	String=e
+=FILTER(A1:A5,A1:A5>2)	3x1	Double=3 | Double=4 | Double=5
+=SORT(B1:B5)	5x1	String=a | String=a | String=b | String=bb | String=c
+=UNIQUE({1;2;2;3})	3x1	Double=1 | Double=2 | Double=3
+=TOCOL(A1:B2)	4x1	Double=1 | String=a | Double=2 | String=b
+=TEXTSPLIT("a,b;c,d",",",";")	2x2	String=a | String=b | String=c | String=d
+=A1:A3*2	3x1	Double=2 | Double=4 | Double=6
+=SUM(A1:A3*{1;2;3})	1x1	Double=14
+="a"="A"	1x1	Boolean=True
+=1<"a"	1x1	Boolean=True
+="a"<TRUE	1x1	Boolean=True
+=""=C1	1x1	Boolean=True
+=0=C1	1x1	Boolean=True

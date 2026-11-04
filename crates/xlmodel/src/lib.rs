@@ -96,7 +96,7 @@ impl Sheet {
     pub fn max_col(&self) -> u32 {
         self.rows.iter().map(|r| r.len()).max().unwrap_or(0) as u32
     }
-    pub(crate) fn set(&mut self, c: Cell, v: CellValue) {
+    pub fn set(&mut self, c: Cell, v: CellValue) {
         let (r, col) = (c.row as usize - 1, c.col as usize - 1);
         if self.rows.len() <= r {
             self.rows.resize_with(r + 1, Vec::new);

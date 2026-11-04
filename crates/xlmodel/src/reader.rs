@@ -158,15 +158,13 @@ fn decode_ooxml(s: String) -> String {
     let mut out = String::with_capacity(s.len());
     let mut i = 0;
     while i < b.len() {
-        if b[i] == b'_' && i + 6 < b.len() && b[i + 1] == b'x' && b[i + 6] == b'_' && s.is_char_boundary(i + 6) {
-            if let Ok(code) = u32::from_str_radix(&s[i + 2..i + 6], 16) {
-                if let Some(ch) = char::from_u32(code) {
+        if b[i] == b'_' && i + 6 < b.len() && b[i + 1] == b'x' && b[i + 6] == b'_' && s.is_char_boundary(i + 6)
+            && let Ok(code) = u32::from_str_radix(&s[i + 2..i + 6], 16)
+                && let Some(ch) = char::from_u32(code) {
                     out.push(ch);
                     i += 7;
                     continue;
                 }
-            }
-        }
         let ch = s[i..].chars().next().unwrap();
         out.push(ch);
         i += ch.len_utf8();

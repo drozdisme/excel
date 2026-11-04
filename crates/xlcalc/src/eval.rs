@@ -74,7 +74,7 @@ impl Model {
                 mr = mr.max(cell.row);
                 mc = mc.max(cell.col);
             }
-            for (cell, _) in &s.array_members {
+            for cell in s.array_members.keys() {
                 set.insert((cell.row, cell.col));
                 mr = mr.max(cell.row);
                 mc = mc.max(cell.col);
@@ -165,11 +165,10 @@ impl Model {
         }
     }
     fn name_expr(&self, name: &str, sheet: Option<usize>) -> Option<Arc<Expr>> {
-        if let Some(s) = sheet {
-            if let Some(e) = self.names.get(&(Some(s), name.to_string())) {
+        if let Some(s) = sheet
+            && let Some(e) = self.names.get(&(Some(s), name.to_string())) {
                 return Some(e.clone());
             }
-        }
         self.names.get(&(None, name.to_string())).cloned()
     }
 }
@@ -347,11 +346,10 @@ impl<'m> Job<'m> {
             return Ok(Lanes::Uniform(Scalar::Empty));
         }
         let v = sh.value(c);
-        if *v == xlmodel::CellValue::Empty && !frozen && !self.m.da_anchors[sheet].is_empty() {
-            if let Some(l) = self.spilled_into(sheet, c)? {
+        if *v == xlmodel::CellValue::Empty && !frozen && !self.m.da_anchors[sheet].is_empty()
+            && let Some(l) = self.spilled_into(sheet, c)? {
                 return Ok(l);
             }
-        }
         Ok(Lanes::Uniform(Scalar::from(v)))
     }
 
@@ -403,8 +401,8 @@ impl<'m> Job<'m> {
         let n = self.n;
         // A dynamic array that would overwrite anything (or leave the sheet) shows #SPILL!.
         let sh = &self.m.wb.sheets[sheet];
-        if let Some(FormulaKind::Array { dynamic: true, .. }) = sh.formulas.get(&a).map(|f| &f.kind) {
-            if arr.rows > 1 || arr.cols > 1 {
+        if let Some(FormulaKind::Array { dynamic: true, .. }) = sh.formulas.get(&a).map(|f| &f.kind)
+            && (arr.rows > 1 || arr.cols > 1) {
                 let (r2, c2) = (a.row as usize + arr.rows - 1, a.col as usize + arr.cols - 1);
                 let blocked = r2 > MAX_ROW as usize
                     || c2 > MAX_COL as usize
@@ -420,7 +418,6 @@ impl<'m> Job<'m> {
                     arr = Arc::new(Array::scalar(Lanes::Uniform(Scalar::Err(XlError::Spill))));
                 }
             }
-        }
         let arr = Arc::new(Array::new(
             arr.rows,
             arr.cols,
@@ -805,9 +802,16 @@ pub fn power(x: f64, y: f64) -> Result<f64, XlError> {
     if x == 0.0 && y < 0.0 {
         return Err(XlError::Div0);
     }
+    if x < 0.0 && y.fract() != 0.0 {
+        // Excel takes odd roots of negative numbers: (-8)^(1/3) = -exp(ln 8 / 3).
+        let inv = 1.0 / y;
+        if (inv - inv.round()).abs() < 1e-9 && inv.round() as i64 % 2 != 0 {
+            return Ok(-(y * (-x).ln()).exp());
+        }
+        return Err(XlError::Num);
+    }
     let v = x.powf(y);
     if v.is_nan() {
-        // Negative base with an odd-root fraction like -8^(1/3) is #NUM! in Excel too.
         return Err(XlError::Num);
     }
     Ok(v)
