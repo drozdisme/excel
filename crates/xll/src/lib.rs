@@ -32,6 +32,10 @@ struct MenuItem {
 struct WriteSet {
     sheets: Vec<(String, SheetPatch, Vec<Rect>)>,
     state: Vec<(String, Cell, Scalar)>,
+    /// Defined names to (re)define: (name, refers-to in R1C1 with leading '=').
+    names: Vec<(String, String)>,
+    /// Formulas to fill: (sheet, range, R1C1 formula text).
+    formulas: Vec<(String, Rect, String)>,
     summary: String,
     cells: usize,
 }
@@ -345,10 +349,10 @@ fn start(i: usize) -> i32 {
         alert("Could not snapshot the workbook (no file written).", 3.0);
         return 1;
     }
-    if ext.eq_ignore_ascii_case("xlsb") || ext.eq_ignore_ascii_case("xls") {
+    if ext.eq_ignore_ascii_case("xls") {
         let _ = std::fs::remove_file(&snap);
         clear_status();
-        alert("This version reads .xlsx/.xlsm workbooks. Save a copy as .xlsm to use BatchCalc.", 3.0);
+        alert("The old .xls format is not supported. Save the workbook as .xlsm or .xlsb to use BatchCalc.", 3.0);
         return 1;
     }
     let cancel = Arc::new(AtomicBool::new(false));
@@ -406,7 +410,13 @@ fn compute(snap: &Path, contract: &Contract, stages: &[String], cancel: Arc<Atom
     let state = result.final_state.iter().map(|(s, c, v)| (model.wb.sheets[*s].name.clone(), *c, v.clone())).collect();
     let summary = result.reports.iter().map(|r| format!("{} {:.1}s", r.name, r.seconds)).collect::<Vec<_>>().join(", ");
     log(&format!("computed '{label}' in {:.2}s: {summary}", t0.elapsed().as_secs_f64()));
-    Ok(WriteSet { sheets, state, summary, cells })
+    let mut names = Vec::new();
+    for (n, a1) in &result.names {
+        let e = xlformula::parse(a1, Cell { row: 1, col: 1 }).map_err(|e| format!("name {n}: {e}"))?;
+        names.push((n.clone(), format!("={}", xlformula::to_r1c1(&e))));
+    }
+    let formulas = result.formulas.iter().map(|(s, r, t)| (model.wb.sheets[*s].name.clone(), *r, t.clone())).collect();
+    Ok(WriteSet { sheets, state, names, formulas, summary, cells })
 }
 
 #[unsafe(no_mangle)]
@@ -632,6 +642,18 @@ fn write_back(book: &str, ws: &WriteSet) -> Result<(), String> {
             if set_range(id, Rect::single(*c), Some(&[&cv])).is_err() {
                 enter_value(id, *c, &cv)?;
             }
+        }
+        // Names resized to the data and summary formulas, as the macro does (R1C1 text).
+        for (name, refers) in &ws.names {
+            let (mut n, mut r) = (XlStr::new(name), XlStr::new(refers));
+            excel(xlcDefineName, &mut [n.oper(), r.oper()]).map_err(|rc| format!("cannot define name {name} ({rc})"))?;
+        }
+        for (sheet, rect, text) in &ws.formulas {
+            status(&format!("BatchCalc: updating formulas ({sheet})..."));
+            let id = sheet_id(book, sheet)?;
+            let mut rf = XlRef::new(id, rect.r1, rect.c1, rect.r2, rect.c2);
+            let mut t = XlStr::new(text);
+            excel(xlcFormulaFill, &mut [t.oper(), rf.oper()]).map_err(|rc| format!("cannot write formulas on {sheet} ({rc})"))?;
         }
         Ok(())
     })();

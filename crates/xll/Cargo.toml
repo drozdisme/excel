@@ -12,4 +12,6 @@ crate-type = ["cdylib"]
 batchcalc = { path = "../batchcalc" }
 xlcalc = { path = "../xlcalc" }
 xlmodel = { path = "../xlmodel" }
+xlformula = { path = "../xlformula" }
 mimalloc = { version = "0.1", default-features = false }
+

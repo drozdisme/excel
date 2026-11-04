@@ -20,6 +20,30 @@ Defects found during verification and fixed in the engine (each confirmed agains
 3. `INDEX` with a negative row/column returns `#VALUE!`, beyond the range `#REF!`.
 4. Errors newer than the OOXML set (`#SPILL!`, `#CALC!`, ...) are stored in files as `#VALUE!`.
 
+## PD template V6 (.xlsb)
+
+The outputs saved in this workbook come from a macro run on 8 Apr 2026; its inputs were
+changed afterwards (Excel itself now computes different values), so they are **not** a valid
+reference. Verification is against live Excel instead:
+
+| Check | Scope | Result |
+|---|---|---|
+| Native .xlsb reader vs .xlsx (same workbook saved in both formats) | 90,912 formulas, 346 names, 18.8 M values | equivalent (only cells Excel itself recalculated differently during conversion) |
+| Frame workbook run from its .xlsb copy (`--verify`) | 15,936,471 cells | **0 different** |
+| Engine recalculation of the PD calculation sheets vs stored values | 34,732 formula cells | **0 different** |
+| SkinAnalysis (21,485 cells incl. the data-table output column) vs fresh Excel at 7 bay/load-case points | 7 × 21,485 cells | **0 different** |
+
+| Add-in in live Excel on the .xlsb (Run Analysis), saved, then engine re-run on the saved book with `--verify` | 57,331,260 written cells | **0 different** |
+| Summary formulas recalculated by Excel after the write vs engine (`selfcheck`) | 91,873 formula cells | **0 different** |
+
+Live Excel end to end: 86 s from the menu command to the finished workbook (snapshot 15 s,
+calculation 11 s, writing 57.3 M cells and Excel's own report recalculation ~60 s).
+The original macro run recorded in the workbook took 2 h 26 min.
+
+Additional defects found and fixed: names are evaluated as array formulas; FILTER with a
+case-dependent condition; xlsb shared formulas name their master's column in the extra
+data (overlapping shared ranges).
+
 ## Performance
 
 | Stage (all 2,323 load cases) | Time |

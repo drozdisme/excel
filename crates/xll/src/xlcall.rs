@@ -113,6 +113,8 @@ pub const xlfGetWorkbook: i32 = 268;
 // Numbers cross-checked against Excel-DNA's XlCall.cs (mirror of the SDK's xlcall.h).
 pub const xlcCalculateNow: i32 = 31 | xlCommand;
 pub const xlcFormula: i32 = 96 | xlCommand;
+pub const xlcFormulaFill: i32 = 97 | xlCommand;
+pub const xlcDefineName: i32 = 61 | xlCommand;
 pub const xlcAlert: i32 = 118 | xlCommand;
 pub const xlcMessage: i32 = 122 | xlCommand;
 pub const xlcEcho: i32 = 141 | xlCommand;

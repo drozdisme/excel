@@ -26,6 +26,7 @@ dependencies = [
  "batchcalc",
  "mimalloc",
  "xlcalc",
+ "xlformula",
  "xlmodel",
 ]
 

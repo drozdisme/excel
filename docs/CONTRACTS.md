@@ -46,6 +46,18 @@ Use absolute, sheet-qualified references (`Node_Map!$B:$B`).
 }
 ```
 
+Further fields (see `contracts/pd_skin_stringer.json`):
+
+| Field | Purpose |
+|---|---|
+| `names` (top level) | `[name, formula returning refers-to text]` — names the macro resizes to the loaded data (`Update_Ranges_Of_Names`); used by the engine and written to the workbook |
+| `clear` objects | `{"range": "...", "when": "formula"}` — conditional clears (option flags) |
+| `excel_formulas` | `{sheet, col, row_from, row_to, r1c1}` — formulas the macro rewrites (written by the add-in with FORMULA.FILL) |
+| `BC_LASTROW(ref)`, `BC_LASTCOL(ref)` | last occupied row/column (VBA `End(xlUp)` / `End(xlToLeft)`) |
+
+What-If data tables (`Range.Table`) are expressed as a case axis: the table's input cell is
+a `per_case` driver and the table's formula column/row is the `source` of the outputs.
+
 Semantics follow the VBA macro exactly:
 
 - Driver values and flags left by one stage are the workbook state of the next stage
