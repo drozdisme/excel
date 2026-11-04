@@ -81,6 +81,7 @@ pub fn scalar_fn(name: &str) -> Option<ScalarFn> {
         "ASIN" => math(|x| if x.abs() > 1.0 { Err(XlError::Num) } else { Ok(x.asin()) }),
         "ACOS" => math(|x| if x.abs() > 1.0 { Err(XlError::Num) } else { Ok(x.acos()) }),
         "ATAN" => math(|x| Ok(x.atan())),
+        "COT" => math(|x| if x == 0.0 { Err(XlError::Div0) } else { Ok(1.0 / x.tan()) }),
         "SINH" => math(|x| Ok(x.sinh())),
         "COSH" => math(|x| Ok(x.cosh())),
         "TANH" => math(|x| Ok(x.tanh())),
