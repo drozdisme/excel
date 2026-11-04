@@ -1,5 +1,8 @@
-//! batchcalc CLI: run a workbook's batch calculation natively and optionally verify it against
+﻿//! batchcalc CLI: run a workbook's batch calculation natively and optionally verify it against
 //! the results stored in the workbook.
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 use batchcalc::{command_stages, find_contract, fully_cleared_sheets, sheet_names, verify, Contract, RunOptions};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -252,3 +255,4 @@ impl SpawnCompat for std::thread::Builder {
         self.spawn(f).expect("spawn")
     }
 }
+
