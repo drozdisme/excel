@@ -1,0 +1,83 @@
+{
+  "name": "PD Skin & Stringer Analysis",
+  "description": "Skin/stringer bay analysis of the PD template (V6). Mirrors VBA run_analysis1 -> main_processing_macro1: a What-If data table over all load cases (SkinAnalysis CS3:CS212 with row input LC_ID1), recalculated for every bay of Bay_ID_arr1; resizing of names and summary formulas as in create_datatable / Update_Ranges_Of_Names / resize_output_formulas.",
+  "required_sheets": ["SkinAnalysis", "QUICK_START", "aux_skin_input", "Loads_param_input", "Skin_Flows", "StringerFEMLoads_A", "StringerFEMLoads_B",
+                      "MS_Summary", "Loads_Output", "Gross_Stress_output", "Net_Stress_output", "LOG", "LC_List"],
+  "commands": [
+    { "name": "run_analysis", "label": "Run Analysis", "stages": ["bays"] }
+  ],
+  "names": [
+    ["segment_loads_A_input", "LET(r,MAX(13,BC_LASTROW(StringerFEMLoads_A!$A:$A)),c,MAX(4,BC_LASTCOL(StringerFEMLoads_A!$8:$8)),\"StringerFEMLoads_A!$D$13:\"&ADDRESS(r,c))"],
+    ["segment_loads_input_ELM_index_A", "LET(c,MAX(4,BC_LASTCOL(StringerFEMLoads_A!$8:$8)),\"StringerFEMLoads_A!$D$8:\"&ADDRESS(8,c))"],
+    ["segment_loads_input_LC_index_A", "LET(r,MAX(13,BC_LASTROW(StringerFEMLoads_A!$A:$A)),\"StringerFEMLoads_A!$A$13:\"&ADDRESS(r,1))"],
+    ["SegA_Key", "LET(r,MAX(13,BC_LASTROW(StringerFEMLoads_A!$A:$A)),\"StringerFEMLoads_A!$A$13:\"&ADDRESS(r,1)&\"&\"\"|\"\"&StringerFEMLoads_A!$C$13:\"&ADDRESS(r,3))"],
+    ["segment_loads_B_input", "LET(r,MAX(13,BC_LASTROW(StringerFEMLoads_B!$A:$A)),c,MAX(4,BC_LASTCOL(StringerFEMLoads_B!$8:$8)),\"StringerFEMLoads_B!$D$13:\"&ADDRESS(r,c))"],
+    ["segment_loads_input_ELM_index_B", "LET(c,MAX(4,BC_LASTCOL(StringerFEMLoads_B!$8:$8)),\"StringerFEMLoads_B!$D$8:\"&ADDRESS(8,c))"],
+    ["segment_loads_input_LC_index_B", "LET(r,MAX(13,BC_LASTROW(StringerFEMLoads_B!$A:$A)),\"StringerFEMLoads_B!$A$13:\"&ADDRESS(r,1))"],
+    ["SegB_Key", "LET(r,MAX(13,BC_LASTROW(StringerFEMLoads_B!$A:$A)),\"StringerFEMLoads_B!$A$13:\"&ADDRESS(r,1)&\"&\"\"|\"\"&StringerFEMLoads_B!$C$13:\"&ADDRESS(r,3))"],
+    ["skin_flows_input", "LET(r,MAX(2,BC_LASTROW(Skin_Flows!$A:$A)),c,MAX(5,BC_LASTCOL(Skin_Flows!$1:$1)),\"Skin_Flows!$E$2:\"&ADDRESS(r,c))"],
+    ["skin_loads_input_ELM_index", "LET(c,MAX(5,BC_LASTCOL(Skin_Flows!$1:$1)),\"Skin_Flows!$E$1:\"&ADDRESS(1,c))"],
+    ["skin_loads_input_LC_index", "LET(r,MAX(2,BC_LASTROW(Skin_Flows!$A:$A)),\"Skin_Flows!$A$2:\"&ADDRESS(r,1))"],
+    ["Skin_Flows_Key", "LET(r,MAX(2,BC_LASTROW(Skin_Flows!$A:$A)),\"Skin_Flows!$A$2:\"&ADDRESS(r,1)&\"&\"\"|\"\"&Skin_Flows!$B$2:\"&ADDRESS(r,2))"],
+    ["MS_output_rng1", "\"SkinAnalysis!$CT$3:\"&ADDRESS(17,97+COLUMNS(ANCHORARRAY(SkinAnalysis!$CT$2)))"],
+    ["LOG_out_rng1", "\"SkinAnalysis!$CT$18:\"&ADDRESS(167,97+COLUMNS(ANCHORARRAY(SkinAnalysis!$CT$2)))"],
+    ["Loads_out_rng1", "\"SkinAnalysis!$CT$168:\"&ADDRESS(182,97+COLUMNS(ANCHORARRAY(SkinAnalysis!$CT$2)))"],
+    ["Gross_stresses_out_rng1", "\"SkinAnalysis!$CT$183:\"&ADDRESS(197,97+COLUMNS(ANCHORARRAY(SkinAnalysis!$CT$2)))"],
+    ["Net_stresses_out_rng1", "\"SkinAnalysis!$CT$198:\"&ADDRESS(212,97+COLUMNS(ANCHORARRAY(SkinAnalysis!$CT$2)))"]
+  ],
+  "stages": [
+    {
+      "name": "bays",
+      "clear": [
+        { "range": "MS_Summary!T2:QQQ10000", "when": "QUICK_START!$E$59=\"YES\"" },
+        { "range": "Loads_Output!T2:QQQ10000", "when": "QUICK_START!$E$60=\"YES\"" },
+        { "range": "Gross_Stress_output!T2:QQQ10000", "when": "QUICK_START!$E$61=\"YES\"" },
+        { "range": "Net_Stress_output!T2:QQQ10000", "when": "QUICK_START!$E$62=\"YES\"" },
+        "LOG!T2:QQQ1000000"
+      ],
+      "after": [["SkinAnalysis!E4", "Skin_Flows!$F$2"]],
+      "loops": [{ "var": "I", "from": "1", "to": "ROWS(Bay_ID_arr1)" }],
+      "vars": [
+        ["BAY", "INDEX(Bay_ID_arr1, I)"],
+        ["LFSUM", "SUMPRODUCT(ABS(INDEX(Segment_LF_arr1, I, 0)))"]
+      ],
+      "skip": "LFSUM=0",
+      "cases": { "count": "COLUMNS(ANCHORARRAY(SkinAnalysis!$CT$2))", "id": "INDEX(ANCHORARRAY(SkinAnalysis!$CT$2), 1, J)" },
+      "drivers": [
+        { "cell": "SkinAnalysis!E3", "value": "BAY" },
+        { "cell": "SkinAnalysis!E4", "value": "CASE_ID", "per_case": true }
+      ],
+      "outputs": [
+        { "source": "SkinAnalysis!CS18:CS167",  "sheet": "LOG",                 "row": "2+150*(I-1)", "col": "20", "step": [1, 0], "case_step": [0, 1] },
+        { "source": "SkinAnalysis!CS3:CS17",    "sheet": "MS_Summary",          "row": "2+15*(I-1)",  "col": "20", "step": [1, 0], "case_step": [0, 1], "when": "QUICK_START!$D$59=\"YES\"" },
+        { "source": "SkinAnalysis!CS168:CS182", "sheet": "Loads_Output",        "row": "2+15*(I-1)",  "col": "20", "step": [1, 0], "case_step": [0, 1], "when": "QUICK_START!$D$60=\"YES\"" },
+        { "source": "SkinAnalysis!CS183:CS197", "sheet": "Gross_Stress_output", "row": "2+15*(I-1)",  "col": "20", "step": [1, 0], "case_step": [0, 1], "when": "QUICK_START!$D$61=\"YES\"" },
+        { "source": "SkinAnalysis!CS198:CS212", "sheet": "Net_Stress_output",   "row": "2+15*(I-1)",  "col": "20", "step": [1, 0], "case_step": [0, 1], "when": "QUICK_START!$D$62=\"YES\"" }
+      ],
+      "excel_formulas": [
+        { "sheet": "MS_Summary", "col": "11", "row_from": "2", "row_to": "BC_LASTROW(MS_Summary!$K:$K)", "r1c1": "\"=IFERROR(SMALL(RC20:RC\"&(CASE_COUNT+19)&\",1),\"\"-\"\")\"" },
+        { "sheet": "MS_Summary", "col": "12", "row_from": "2", "row_to": "BC_LASTROW(MS_Summary!$K:$K)", "r1c1": "\"=IF(RC[-1]=\"\"-\"\",\"\"-\"\",INDEX(R1C20:R1C\"&(CASE_COUNT+19)&\",1,MATCH(RC[-1],RC20:RC\"&(CASE_COUNT+19)&\",0)))\"" },
+        { "sheet": "MS_Summary", "col": "13", "row_from": "2", "row_to": "BC_LASTROW(MS_Summary!$K:$K)", "r1c1": "\"=IFERROR(SMALL(RC20:RC\"&(CASE_COUNT+19)&\",2),\"\"-\"\")\"" },
+        { "sheet": "MS_Summary", "col": "14", "row_from": "2", "row_to": "BC_LASTROW(MS_Summary!$K:$K)", "r1c1": "\"=IF(RC[-1]=\"\"-\"\",\"\"-\"\",INDEX(R1C20:R1C\"&(CASE_COUNT+19)&\",1,MATCH(RC[-1],RC20:RC\"&(CASE_COUNT+19)&\",0)))\"" },
+        { "sheet": "MS_Summary", "col": "15", "row_from": "2", "row_to": "BC_LASTROW(MS_Summary!$K:$K)", "r1c1": "\"=IFERROR(SMALL(RC20:RC\"&(CASE_COUNT+19)&\",3),\"\"-\"\")\"" },
+        { "sheet": "MS_Summary", "col": "16", "row_from": "2", "row_to": "BC_LASTROW(MS_Summary!$K:$K)", "r1c1": "\"=IF(RC[-1]=\"\"-\"\",\"\"-\"\",INDEX(R1C20:R1C\"&(CASE_COUNT+19)&\",1,MATCH(RC[-1],RC20:RC\"&(CASE_COUNT+19)&\",0)))\"" },
+        { "sheet": "Loads_Output", "col": "11", "row_from": "2", "row_to": "BC_LASTROW(Loads_Output!$K:$K)", "r1c1": "\"=IFERROR(MAX(RC20:RC\"&(CASE_COUNT+19)&\"),\"\"-\"\")\"" },
+        { "sheet": "Loads_Output", "col": "12", "row_from": "2", "row_to": "BC_LASTROW(Loads_Output!$K:$K)", "r1c1": "\"=IFERROR(IF(RC[-1]=\"\"-\"\",\"\"-\"\",INDEX(R1C20:R1C\"&(CASE_COUNT+19)&\",1,MATCH(RC[-1],RC20:RC\"&(CASE_COUNT+19)&\",0))),\"\"-\"\")\"" },
+        { "sheet": "Loads_Output", "col": "13", "row_from": "2", "row_to": "BC_LASTROW(Loads_Output!$K:$K)", "r1c1": "\"=IFERROR(MAX(RC20:RC\"&(CASE_COUNT+19)&\"),\"\"-\"\")\"" },
+        { "sheet": "Loads_Output", "col": "14", "row_from": "2", "row_to": "BC_LASTROW(Loads_Output!$K:$K)", "r1c1": "\"=IFERROR(IF(RC[-1]=\"\"-\"\",\"\"-\"\",INDEX(R1C20:R1C\"&(CASE_COUNT+19)&\",1,MATCH(RC[-1],RC20:RC\"&(CASE_COUNT+19)&\",0))),\"\"-\"\")\"" },
+        { "sheet": "Gross_Stress_output", "col": "11", "row_from": "2", "row_to": "BC_LASTROW(Gross_Stress_output!$K:$K)", "r1c1": "\"=IFERROR(MAX(RC20:RC\"&(CASE_COUNT+19)&\"),\"\"-\"\")\"" },
+        { "sheet": "Gross_Stress_output", "col": "12", "row_from": "2", "row_to": "BC_LASTROW(Gross_Stress_output!$K:$K)", "r1c1": "\"=IFERROR(IF(RC[-1]=\"\"-\"\",\"\"-\"\",INDEX(R1C20:R1C\"&(CASE_COUNT+19)&\",1,MATCH(RC[-1],RC20:RC\"&(CASE_COUNT+19)&\",0))),\"\"-\"\")\"" },
+        { "sheet": "Gross_Stress_output", "col": "13", "row_from": "2", "row_to": "BC_LASTROW(Gross_Stress_output!$K:$K)", "r1c1": "\"=IFERROR(MAX(RC20:RC\"&(CASE_COUNT+19)&\"),\"\"-\"\")\"" },
+        { "sheet": "Gross_Stress_output", "col": "14", "row_from": "2", "row_to": "BC_LASTROW(Gross_Stress_output!$K:$K)", "r1c1": "\"=IFERROR(IF(RC[-1]=\"\"-\"\",\"\"-\"\",INDEX(R1C20:R1C\"&(CASE_COUNT+19)&\",1,MATCH(RC[-1],RC20:RC\"&(CASE_COUNT+19)&\",0))),\"\"-\"\")\"" },
+        { "sheet": "Net_Stress_output", "col": "11", "row_from": "2", "row_to": "BC_LASTROW(Net_Stress_output!$K:$K)", "r1c1": "\"=IFERROR(MAX(RC20:RC\"&(CASE_COUNT+19)&\"),\"\"-\"\")\"" },
+        { "sheet": "Net_Stress_output", "col": "12", "row_from": "2", "row_to": "BC_LASTROW(Net_Stress_output!$K:$K)", "r1c1": "\"=IFERROR(IF(RC[-1]=\"\"-\"\",\"\"-\"\",INDEX(R1C20:R1C\"&(CASE_COUNT+19)&\",1,MATCH(RC[-1],RC20:RC\"&(CASE_COUNT+19)&\",0))),\"\"-\"\")\"" },
+        { "sheet": "Net_Stress_output", "col": "13", "row_from": "2", "row_to": "BC_LASTROW(Net_Stress_output!$K:$K)", "r1c1": "\"=IFERROR(MAX(RC20:RC\"&(CASE_COUNT+19)&\"),\"\"-\"\")\"" },
+        { "sheet": "Net_Stress_output", "col": "14", "row_from": "2", "row_to": "BC_LASTROW(Net_Stress_output!$K:$K)", "r1c1": "\"=IFERROR(IF(RC[-1]=\"\"-\"\",\"\"-\"\",INDEX(R1C20:R1C\"&(CASE_COUNT+19)&\",1,MATCH(RC[-1],RC20:RC\"&(CASE_COUNT+19)&\",0))),\"\"-\"\")\"" },
+        { "sheet": "LOG", "col": "18", "row_from": "1", "row_to": "1", "r1c1": "\"=COUNT(RC20:RC\"&(CASE_COUNT+19)&\")\"" },
+        { "sheet": "LOG", "col": "12", "row_from": "2", "row_to": "BC_LASTROW(LOG!$L:$L)", "r1c1": "\"=COUNTIF(RC20:RC\"&(CASE_COUNT+19)&\",\"\"\"&LEFT(LOG!$K$2,FIND(\" \",LOG!$K$2&\" \")-1)&\"\"\")\"" },
+        { "sheet": "LOG", "col": "14", "row_from": "2", "row_to": "BC_LASTROW(LOG!$L:$L)", "r1c1": "\"=COUNTIF(RC20:RC\"&(CASE_COUNT+19)&\",\"\"\"&LEFT(LOG!$M$2,FIND(\" \",LOG!$M$2&\" \")-1)&\"\"\")\"" },
+        { "sheet": "LOG", "col": "16", "row_from": "2", "row_to": "BC_LASTROW(LOG!$L:$L)", "r1c1": "\"=COUNTIF(RC20:RC\"&(CASE_COUNT+19)&\",\"\"\"&LEFT(LOG!$O$2,FIND(\" \",LOG!$O$2&\" \")-1)&\"\"\")\"" }
+      ]
+    }
+  ]
+}

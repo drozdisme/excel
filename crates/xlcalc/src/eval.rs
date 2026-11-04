@@ -36,6 +36,8 @@ pub struct Model {
     /// Dynamic-array anchors per sheet with the furthest row/col they could spill to: their
     /// spill size is only known after evaluation (the file records the last one only).
     da_anchors: Vec<Vec<(Cell, u32, u32)>>,
+    /// 64x64 block -> indexes into `da_anchors` whose potential spill area touches the block.
+    da_grid: Vec<HashMap<(u32, u32), Vec<usize>>>,
 }
 
 impl Model {
@@ -114,15 +116,31 @@ impl Model {
                 names.insert((n.scope, n.name.to_ascii_uppercase()), Arc::new(e));
             }
         }
-        Ok(Model { wb, exprs, names, computed, extent, da_anchors })
+        let da_grid = da_anchors
+            .iter()
+            .map(|list| {
+                let mut g: HashMap<(u32, u32), Vec<usize>> = HashMap::new();
+                for (k, (a, mr, mc)) in list.iter().enumerate() {
+                    for br in (a.row - 1) / 64..=(mr - 1) / 64 {
+                        for bc in (a.col - 1) / 64..=(mc - 1) / 64 {
+                            g.entry((br, bc)).or_default().push(k);
+                        }
+                    }
+                }
+                g
+            })
+            .collect();
+        Ok(Model { wb, exprs, names, computed, extent, da_anchors, da_grid })
     }
 
     /// Dynamic-array anchors that could spill onto `c`: up-left of it with nothing but empty
     /// cells (or their own recorded spill) in between, nearest first.
     fn spill_candidates(&self, sheet: usize, c: Cell) -> Vec<Cell> {
         let sh = &self.wb.sheets[sheet];
-        let mut out: Vec<Cell> = self.da_anchors[sheet]
+        let Some(bucket) = self.da_grid[sheet].get(&((c.row - 1) / 64, (c.col - 1) / 64)) else { return Vec::new() };
+        let mut out: Vec<Cell> = bucket
             .iter()
+            .map(|&k| &self.da_anchors[sheet][k])
             .filter(|(a, mr, mc)| a.row <= c.row && a.col <= c.col && c.row <= *mr && c.col <= *mc && (a.row, a.col) != (c.row, c.col))
             .map(|(a, _, _)| a)
             .filter(|a| {
@@ -233,6 +251,8 @@ pub struct Job<'m> {
     cleared: HashSet<usize>,
     overlay: Option<Arc<Overlay>>,
     spill_cache: HashMap<(usize, Cell), Vec<Cell>>,
+    /// Defined names replaced for this job (upper-case name, scope) -> expression.
+    name_overrides: Arc<HashMap<String, Arc<Expr>>>,
     pub evaluated_cells: usize,
 }
 
@@ -252,8 +272,14 @@ impl<'m> Job<'m> {
             cleared: HashSet::new(),
             overlay: None,
             spill_cache: HashMap::new(),
+            name_overrides: Arc::new(HashMap::new()),
             evaluated_cells: 0,
         }
+    }
+
+    /// Workbook-level names redefined for this job (e.g. ranges resized to the data).
+    pub fn set_name_overrides(&mut self, n: Arc<HashMap<String, Arc<Expr>>>) {
+        self.name_overrides = n;
     }
 
     pub fn set_overlay(&mut self, o: Arc<Overlay>) {
@@ -351,6 +377,24 @@ impl<'m> Job<'m> {
                 return Ok(l);
             }
         Ok(Lanes::Uniform(Scalar::from(v)))
+    }
+
+    /// Whether a cell holds anything (a formula counts even when it shows ""), without
+    /// evaluating it — VBA End(xlUp)/End(xlToLeft) semantics.
+    pub fn is_occupied(&self, sheet: usize, c: Cell) -> bool {
+        if self.overrides.contains_key(&(sheet, c)) {
+            return true;
+        }
+        if let Some(p) = self.overlay.as_ref().and_then(|o| o.get(&sheet)) {
+            if let Some(v) = p.written(c) {
+                return *v != xlmodel::CellValue::Empty;
+            }
+            if p.is_cleared(c) {
+                return false;
+            }
+        }
+        let sh = &self.m.wb.sheets[sheet];
+        sh.formulas.contains_key(&c) || sh.array_members.contains_key(&c) || *sh.value(c) != xlmodel::CellValue::Empty
     }
 
     /// Value a dynamic array spills into an otherwise empty cell, if any.
@@ -669,14 +713,20 @@ impl<'m> Job<'m> {
             Some((s, n)) => (self.m.sheet_index(s), n),
             None => (Some(cx.sheet), name),
         };
+        // A defined name's formula is evaluated as an array formula (Excel: names never apply
+        // implicit intersection inside their own formula), in the caller's position.
+        let acx = Ctx { array: true, ..*cx };
+        if let Some(e) = self.name_overrides.get(bare).cloned() {
+            return self.eval(&e, &acx);
+        }
         match self.m.name_expr(bare, scope) {
-            Some(e) => {
-                // Names are evaluated in the caller's context (refers_to is mostly absolute).
-                let v = self.eval(&e, cx)?;
-                Ok(v)
-            }
+            Some(e) => self.eval(&e, &acx),
             None => Ok(Value::err(XlError::Name)),
         }
+    }
+
+    pub(crate) fn unary_spill(&mut self, x: &Expr, cx: &Ctx) -> R<Value> {
+        self.unary(UnOp::Spill, x, cx)
     }
 
     fn unary(&mut self, op: UnOp, x: &Expr, cx: &Ctx) -> R<Value> {

@@ -15,6 +15,10 @@ pub struct Contract {
     #[serde(default)]
     pub identify: Vec<String>,
     pub stages: Vec<Stage>,
+    /// Defined names (re)computed before the stages, like a macro resizing input ranges to
+    /// the loaded data: [name, formula returning the refers-to text, e.g. "Sheet!$A$1:$B$9"].
+    #[serde(default)]
+    pub names: Vec<[String; 2]>,
     /// User-facing commands (button equivalents), each a list of stage names in order.
     #[serde(default)]
     pub commands: Vec<Command>,
@@ -35,9 +39,14 @@ pub struct Stage {
     /// Sheets whose formulas keep their stored values during the stage (EnableCalculation=False).
     #[serde(default)]
     pub freeze: Vec<String>,
-    /// Sheets ("Sheet") or ranges ("Sheet!A1:B2") cleared before the stage writes.
+    /// Sheets ("Sheet") or ranges ("Sheet!A1:B2") cleared before the stage writes, optionally
+    /// only when a condition holds ({"range": ..., "when": ...}).
     #[serde(default)]
-    pub clear: Vec<String>,
+    pub clear: Vec<ClearSpec>,
+    /// Formulas the macro (re)writes in the workbook (applied by the Excel add-in after the
+    /// results): fill `col` rows `row_from..=row_to` of `sheet` with the R1C1 text `r1c1`.
+    #[serde(default)]
+    pub excel_formulas: Vec<ExcelFormula>,
     /// Cells assigned during the stage: [cell, formula].
     #[serde(default)]
     pub set: Vec<[String; 2]>,
@@ -61,6 +70,35 @@ pub struct Stage {
     pub outputs: Vec<Output>,
     #[serde(default)]
     pub headers: Vec<Header>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ClearSpec {
+    Always(String),
+    When { range: String, when: String },
+}
+
+impl ClearSpec {
+    pub fn range(&self) -> &str {
+        match self {
+            ClearSpec::Always(r) => r,
+            ClearSpec::When { range, .. } => range,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ExcelFormula {
+    pub sheet: String,
+    pub col: String,
+    pub row_from: String,
+    pub row_to: String,
+    /// Formula returning the R1C1 formula text to fill.
+    pub r1c1: String,
+    #[serde(default)]
+    pub when: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

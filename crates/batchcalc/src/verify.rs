@@ -34,6 +34,11 @@ pub fn equal(a: &CellValue, b: &CellValue, max_abs: &mut f64) -> bool {
 }
 
 pub fn compare(result: &RunResult, golden: &Workbook) -> Vec<SheetDiff> {
+    compare_opts(result, golden, false)
+}
+
+/// `written_only`: skip the check that cleared-but-unwritten cells are empty (partial runs).
+pub fn compare_opts(result: &RunResult, golden: &Workbook, written_only: bool) -> Vec<SheetDiff> {
     let mut out = Vec::new();
     let mut sheets: Vec<&usize> = result.patches.keys().collect();
     sheets.sort();
@@ -61,7 +66,7 @@ pub fn compare(result: &RunResult, golden: &Workbook) -> Vec<SheetDiff> {
         }
         // Every non-empty stored cell we cleared and did not write must be empty in the workbook too.
         let empty = CellValue::Empty;
-        for (ri, line) in g.rows.iter().enumerate() {
+        for (ri, line) in g.rows.iter().enumerate().filter(|_| !written_only) {
             for (ci, v) in line.iter().enumerate() {
                 let c = Cell { row: ri as u32 + 1, col: ci as u32 + 1 };
                 if *v != CellValue::Empty && p.written(c).is_none() && p.is_cleared(c) {

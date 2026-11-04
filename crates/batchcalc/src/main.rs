@@ -33,13 +33,17 @@ fn main() {
     let flag = |name: &str| args.iter().position(|a| a == name).and_then(|i| args.get(i + 1)).cloned();
     let book = PathBuf::from(book);
     let names = sheet_names(&book).unwrap_or_else(|e| fail(e));
-    let (cpath, contract): (PathBuf, Contract) = match flag("--contract") {
-        Some(p) => {
-            let text = std::fs::read_to_string(&p).unwrap_or_else(|e| fail(format!("{p}: {e}")));
-            (PathBuf::from(&p), Contract::from_json(&text).unwrap_or_else(|e| fail(e)))
+    let load_contract = || -> (PathBuf, Contract) {
+        match flag("--contract") {
+            Some(p) => {
+                let text = std::fs::read_to_string(&p).unwrap_or_else(|e| fail(format!("{p}: {e}")));
+                (PathBuf::from(&p), Contract::from_json(&text).unwrap_or_else(|e| fail(e)))
+            }
+            None => find_contract(&contract_dirs(), &names).unwrap_or_else(|e| fail(e)),
         }
-        None => find_contract(&contract_dirs(), &names).unwrap_or_else(|e| fail(e)),
     };
+    let needs_contract = matches!(cmd.as_str(), "commands" | "run");
+    let (cpath, contract) = if needs_contract { load_contract() } else { (PathBuf::new(), Contract::from_json(r#"{"name":"","required_sheets":[],"stages":[]}"#).unwrap()) };
     match cmd.as_str() {
         "commands" => {
             println!("{} ({})", contract.name, cpath.display());
@@ -83,7 +87,7 @@ fn main() {
             }
             println!("calculation {:.2}s, total {:.2}s, {} threads", t_calc, t0.elapsed().as_secs_f64(), opts.threads);
             if verify_mode {
-                let diffs = verify::compare(&result, &model.wb);
+                let diffs = verify::compare_opts(&result, &model.wb, args.iter().any(|a| a == "--written-only"));
                 let (mut cmp, mut bad) = (0, 0);
                 for d in &diffs {
                     cmp += d.compared;
@@ -98,6 +102,31 @@ fn main() {
                     std::process::exit(3);
                 }
             }
+        }
+        "eval" => {
+            // eval BOOK FORMULA...: evaluate formulas against the workbook's stored state.
+            let wb = xlmodel::read_workbook(&book, &Default::default()).unwrap_or_else(|e| fail(e));
+            let model = xlcalc::Model::new(wb).unwrap_or_else(|e| fail(e));
+            let formulas: Vec<String> = args[2..].iter().filter(|a| !a.starts_with("--")).cloned().collect();
+            std::thread::scope(|s| {
+                std::thread::Builder::new()
+                    .stack_size(1 << 30)
+                    .spawn_scoped(s, || {
+                        let mut job = xlcalc::Job::new(&model, 1);
+                        for f in &formulas {
+                            let e = xlformula::parse(f, xlmodel::Cell { row: 1, col: 1 }).unwrap_or_else(|e| fail(e));
+                            match job.eval_expr(&e, 0) {
+                                Ok(l) => println!("{}", match l.get(0) {
+                                    xlcalc::Scalar::Text(t) => t.to_string(),
+                                    xlcalc::Scalar::Num(n) => xlcalc::scalar::number_to_text(n),
+                                    o => format!("{o:?}"),
+                                }),
+                                Err(e) => println!("ERROR {e}"),
+                            }
+                        }
+                    })
+                    .unwrap();
+            });
         }
         "compare-formulas" => {
             // Same workbook in two formats (e.g. .xlsm vs .xlsb): formulas, arrays, names, values.
@@ -232,7 +261,7 @@ fn main() {
                         let f: Vec<&str> = l.splitn(5, '\t').collect();
                         let v = match f[3] {
                             "n" => xlmodel::CellValue::Number(f[4].parse().ok()?),
-                            "s" => xlmodel::CellValue::Text(f[4].into()),
+                            "s" => xlmodel::CellValue::Text(unescape(f[4]).into()),
                             "b" => xlmodel::CellValue::Bool(f[4] == "True"),
                             "e" => xlmodel::CellValue::Error(match f[4] {
                                 "-2146826281" => xlmodel::XlError::Div0,
@@ -349,6 +378,26 @@ fn main() {
     }
 }
 
+/// Oracle TSV text escapes: \\ \t \r \n.
+fn unescape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut it = s.chars();
+    while let Some(c) = it.next() {
+        if c == '\\' {
+            match it.next() {
+                Some('t') => out.push('\t'),
+                Some('r') => out.push('\r'),
+                Some('n') => out.push('\n'),
+                Some(o) => out.push(o),
+                None => out.push('\\'),
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
 trait SpawnCompat {
     fn spawn_scoped_compat<F: FnOnce() + Send + 'static>(self, f: F) -> std::thread::JoinHandle<()>;
 }
@@ -357,4 +406,5 @@ impl SpawnCompat for std::thread::Builder {
         self.spawn(f).expect("spawn")
     }
 }
+
 

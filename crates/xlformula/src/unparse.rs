@@ -73,6 +73,66 @@ pub fn to_a1(e: &Expr, at: Cell) -> String {
     }
 }
 
+/// Render in R1C1 notation (relative offsets are relative to the formula's own cell, i.e.
+/// the origin it was parsed at). Used to hand formulas and names to Excel's macro language.
+pub fn to_r1c1(e: &Expr) -> String {
+    fn rc(c: Coord, letter: char) -> String {
+        match c {
+            Coord::Abs(v) => format!("{letter}{v}"),
+            Coord::Rel(0) => letter.to_string(),
+            Coord::Rel(d) => format!("{letter}[{d}]"),
+        }
+    }
+    fn reference(r: &Reference) -> String {
+        let s = match &r.sheet {
+            Some(s) if s.chars().all(|c| c.is_alphanumeric() || c == '_') => format!("{s}!"),
+            Some(s) => format!("'{}'!", s.replace('\'', "''")),
+            None => String::new(),
+        };
+        s + &match &r.area {
+            Area::Cell { row, col } => format!("{}{}", rc(*row, 'R'), rc(*col, 'C')),
+            Area::Range { r1, c1, r2, c2 } => format!("{}{}:{}{}", rc(*r1, 'R'), rc(*c1, 'C'), rc(*r2, 'R'), rc(*c2, 'C')),
+            Area::Cols { c1, c2 } => format!("{}:{}", rc(*c1, 'C'), rc(*c2, 'C')),
+            Area::Rows { r1, r2 } => format!("{}:{}", rc(*r1, 'R'), rc(*r2, 'R')),
+        }
+    }
+    fn go(e: &Expr) -> String {
+        match e {
+            Expr::Ref(r) => reference(r),
+            Expr::Call(n, a) => format!("{n}({})", a.iter().map(go).collect::<Vec<_>>().join(",")),
+            Expr::Unary(op, x) => match op {
+                UnOp::Neg => format!("-{}", go(x)),
+                UnOp::Plus => format!("+{}", go(x)),
+                UnOp::Percent => format!("{}%", go(x)),
+                UnOp::Implicit => format!("@{}", go(x)),
+                UnOp::Spill => format!("{}#", go(x)),
+            },
+            Expr::Binary(op, a, b) => {
+                let o = match op {
+                    BinOp::Add => "+",
+                    BinOp::Sub => "-",
+                    BinOp::Mul => "*",
+                    BinOp::Div => "/",
+                    BinOp::Pow => "^",
+                    BinOp::Concat => "&",
+                    BinOp::Eq => "=",
+                    BinOp::Ne => "<>",
+                    BinOp::Lt => "<",
+                    BinOp::Le => "<=",
+                    BinOp::Gt => ">",
+                    BinOp::Ge => ">=",
+                    BinOp::Range => ":",
+                    BinOp::Intersect => " ",
+                };
+                format!("({}{}{})", go(a), o, go(b))
+            }
+            Expr::Array(rows) => format!("{{{}}}", rows.iter().map(|r| r.iter().map(go).collect::<Vec<_>>().join(",")).collect::<Vec<_>>().join(";")),
+            other => to_a1(other, xlmodel::Cell { row: 1, col: 1 }),
+        }
+    }
+    go(e)
+}
+
 /// All references in an expression (for dependency diagnostics).
 pub fn references(e: &Expr, out: &mut Vec<Reference>) {
     match e {

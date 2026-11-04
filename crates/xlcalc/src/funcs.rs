@@ -42,6 +42,8 @@ impl<'m> Job<'m> {
             "CHOOSE" => self.f_choose(args, cx),
             "SWITCH" => self.f_switch(args, cx),
             "LET" => self.f_let(args, cx),
+            // File form of the spill operator: ANCHORARRAY(A1) is A1#.
+            "ANCHORARRAY" if args.len() == 1 => self.unary_spill(&args[0], cx),
             "AND" | "OR" | "XOR" => self.f_logical(name, args, cx),
             "SUM" | "MIN" | "MAX" | "AVERAGE" | "COUNT" | "COUNTA" | "PRODUCT" | "SUMSQ" | "MEDIAN" | "COUNTBLANK" => {
                 self.f_aggregate(name, args, cx)

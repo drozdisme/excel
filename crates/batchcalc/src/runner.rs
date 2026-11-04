@@ -1,4 +1,4 @@
-//! Executes contract stages: enumerates jobs, runs them on worker threads over all cases at
+﻿//! Executes contract stages: enumerates jobs, runs them on worker threads over all cases at
 //! once, and collects the cells the original macro would have written.
 use crate::contract::{Contract, Header, Scope, Stage};
 use std::collections::HashMap;
@@ -22,6 +22,8 @@ pub struct Progress {
 pub struct RunOptions {
     pub threads: usize,
     pub case_limit: Option<usize>,
+    /// Cases evaluated together per work item (bounds memory; 0 = all at once).
+    pub chunk: usize,
     pub cancel: Arc<AtomicBool>,
     pub progress: Option<Arc<dyn Fn(&Progress) + Send + Sync>>,
 }
@@ -31,6 +33,7 @@ impl Default for RunOptions {
         RunOptions {
             threads: std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4),
             case_limit: None,
+            chunk: 1024,
             cancel: Arc::new(AtomicBool::new(false)),
             progress: None,
         }
@@ -54,6 +57,10 @@ pub struct RunResult {
     pub reports: Vec<StageReport>,
     /// Cells the macro leaves behind (driver values, RUNNING flags), to write after outputs.
     pub final_state: Vec<(usize, Cell, Scalar)>,
+    /// Defined names to set in the workbook: (name, refers-to formula in A1 notation).
+    pub names: Vec<(String, String)>,
+    /// Formulas to (re)write in the workbook: (sheet, column range, R1C1 formula text).
+    pub formulas: Vec<(usize, Rect, String)>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -130,6 +137,7 @@ struct StageCtx<'a> {
     j_lanes: Lanes,
     case_ids: Lanes,
     exprs: HashMap<String, Arc<Expr>>,
+    names: Arc<HashMap<String, Arc<Expr>>>,
 }
 
 impl<'a> StageCtx<'a> {
@@ -138,6 +146,7 @@ impl<'a> StageCtx<'a> {
     }
     fn job(&self, lanes: usize) -> Job<'a> {
         let mut job = Job::new(self.model, lanes);
+        job.set_name_overrides(self.names.clone());
         job.set_overlay(self.overlay.clone());
         for &f in &self.frozen {
             job.freeze_sheet(f);
@@ -177,14 +186,30 @@ pub fn run(model: &Model, contract: &Contract, stages: &[String], opts: &RunOpti
     for s in &contract.required_sheets {
         sheet_idx(model, s)?;
     }
+    // Names recomputed from the data first (each may use the previous ones).
+    let mut names_out = Vec::new();
+    let mut name_map: HashMap<String, Arc<Expr>> = HashMap::new();
+    for [name, f] in &contract.names {
+        let mut probe = Job::new(model, 1);
+        probe.set_name_overrides(Arc::new(name_map.clone()));
+        let text = match probe.eval_expr(&*parse(f)?, 0).map_err(|e| RunError::Eval(format!("name {name}: {e}")))?.get(0) {
+            Scalar::Text(t) => t.to_string(),
+            other => return Err(RunError::Eval(format!("name {name}: refers-to formula gave {other:?}"))),
+        };
+        name_map.insert(name.to_ascii_uppercase(), parse(&text)?);
+        names_out.push((name.clone(), text));
+    }
+    let names = Arc::new(name_map);
     let mut overlay: Overlay = HashMap::new();
     // Workbook state carried between stages (driver values, flags), like the live workbook.
     let mut state: HashMap<(usize, Cell), Lanes> = HashMap::new();
     let mut reports = Vec::new();
+    let mut formulas = Vec::new();
     for (si, name) in stages.iter().enumerate() {
         let stage = contract.stage(name).ok_or_else(|| RunError::Contract(format!("no stage '{name}'")))?;
         let started = Instant::now();
-        let (patches, report, new_state) = run_stage(model, stage, &overlay, &state, opts, si, stages.len())?;
+        let (patches, report, new_state, f) = run_stage(model, stage, &overlay, &state, &names, opts, si, stages.len())?;
+        formulas.extend(f);
         for (sheet, p) in patches {
             merge(overlay.entry(sheet).or_default(), p);
         }
@@ -193,7 +218,7 @@ pub fn run(model: &Model, contract: &Contract, stages: &[String], opts: &RunOpti
     }
     let mut final_state: Vec<(usize, Cell, Scalar)> = state.into_iter().map(|((s, c), v)| (s, c, v.get(0))).collect();
     final_state.sort_by_key(|(s, c, _)| (*s, c.row, c.col));
-    Ok(RunResult { patches: overlay, reports, final_state })
+    Ok(RunResult { patches: overlay, reports, final_state, names: names_out, formulas })
 }
 
 fn merge(dst: &mut SheetPatch, src: SheetPatch) {
@@ -219,16 +244,17 @@ fn merge(dst: &mut SheetPatch, src: SheetPatch) {
     }
 }
 
-#[allow(clippy::type_complexity)]
+#[allow(clippy::type_complexity, clippy::too_many_arguments)]
 fn run_stage(
     model: &Model,
     stage: &Stage,
     prior: &Overlay,
     state: &HashMap<(usize, Cell), Lanes>,
+    names: &Arc<HashMap<String, Arc<Expr>>>,
     opts: &RunOptions,
     stage_index: usize,
     stage_count: usize,
-) -> Res<(Overlay, StageReport, HashMap<(usize, Cell), Lanes>)> {
+) -> Res<(Overlay, StageReport, HashMap<(usize, Cell), Lanes>, Vec<(usize, Rect, String)>)> {
     // ---- compile every expression of the stage once
     let mut c = Compiled { exprs: HashMap::new() };
     let mut texts: Vec<&str> = Vec::new();
@@ -259,18 +285,39 @@ fn run_stage(
         texts.extend(h.values.iter().map(String::as_str));
         texts.extend(h.when.iter().map(String::as_str));
     }
+    for f in &stage.excel_formulas {
+        texts.extend([f.col.as_str(), f.row_from.as_str(), f.row_to.as_str(), f.r1c1.as_str()]);
+        texts.extend(f.when.iter().map(String::as_str));
+    }
+    for cl in &stage.clear {
+        if let crate::contract::ClearSpec::When { when, .. } = cl {
+            texts.push(when);
+        }
+    }
     for t in texts {
         c.get(t)?;
     }
 
     // ---- this stage's clears become a patch layered over prior stages' results
     let mut own: Overlay = HashMap::new();
-    for cl in &stage.clear {
-        if cl.contains('!') {
-            let (s, r) = resolve_range(model, cl)?;
-            own.entry(s).or_default().cleared.push(r);
-        } else {
-            own.entry(sheet_idx(model, cl)?).or_default().cleared_all = true;
+    {
+        let mut cprobe = Job::new(model, 1);
+        cprobe.set_name_overrides(names.clone());
+        for cl in &stage.clear {
+            if let crate::contract::ClearSpec::When { when, .. } = cl {
+                let e = c.get(when)?;
+                let ok = cprobe.eval_expr(&e, 0).map_err(|e| RunError::Eval(format!("'{when}': {e}")))?.get(0).to_bool().unwrap_or(false);
+                if !ok {
+                    continue;
+                }
+            }
+            let range = cl.range();
+            if range.contains('!') {
+                let (s, r) = resolve_range(model, range)?;
+                own.entry(s).or_default().cleared.push(r);
+            } else {
+                own.entry(sheet_idx(model, range)?).or_default().cleared_all = true;
+            }
         }
     }
     let mut layered = prior.clone();
@@ -289,6 +336,7 @@ fn run_stage(
         j_lanes: Lanes::Uniform(Scalar::Num(1.0)),
         case_ids: Lanes::Uniform(Scalar::Empty),
         exprs: c.exprs,
+        names: names.clone(),
     };
     // Stage `set` cells (evaluated against the current state) apply for the whole stage.
     sctx.state = state_list.clone();
@@ -388,16 +436,30 @@ fn run_stage(
         }
     }
 
-    // ---- run jobs in parallel
+    // ---- work items: every job, split into chunks of cases
+    let chunk = if opts.chunk == 0 { sctx.n } else { opts.chunk.min(sctx.n) };
+    let mut items: Vec<(usize, usize, usize)> = Vec::new();
+    for (si, spec) in specs.iter().enumerate() {
+        if spec.skip_cases || chunk >= sctx.n {
+            items.push((si, 0, sctx.n));
+        } else {
+            let mut s = 0;
+            while s < sctx.n {
+                items.push((si, s, chunk.min(sctx.n - s)));
+                s += chunk;
+            }
+        }
+    }
+    let total_items = items.len();
     let next = AtomicUsize::new(0);
     let done = AtomicUsize::new(0);
     let failure: Mutex<Option<RunError>> = Mutex::new(None);
     // Final state: drivers from the last job in loop order, case drivers from the last job that ran cases.
     let last_state: Mutex<HashMap<usize, Vec<(usize, Cell, Lanes)>>> = Mutex::new(HashMap::new());
-    let threads = opts.threads.max(1).min(total_jobs.max(1));
+    let threads = opts.threads.max(1).min(total_items.max(1));
     let report_progress = |d: usize| {
         if let Some(p) = &opts.progress {
-            p(&Progress { stage: stage.name.clone(), stage_index, stage_count, done: d, total: total_jobs });
+            p(&Progress { stage: stage.name.clone(), stage_index, stage_count, done: d, total: total_items });
         }
     };
     report_progress(0);
@@ -410,8 +472,9 @@ fn run_stage(
                         break;
                     }
                     let i = next.fetch_add(1, Ordering::Relaxed);
-                    let Some(spec) = specs.get(i) else { break };
-                    match run_job(&sctx, spec, &write) {
+                    let Some(&(si, start, len)) = items.get(i) else { break };
+                    let spec = &specs[si];
+                    match run_job(&sctx, spec, start, len, &write) {
                         Ok(st) => {
                             last_state.lock().unwrap().insert(i, st);
                         }
@@ -455,6 +518,26 @@ fn run_stage(
         let v = sctx.eval(&mut probe, f)?;
         new_state.insert((s, Cell { row: r.r1, col: r.c1 }), v);
     }
+    // Formulas the macro rewrites (evaluated against the state before this stage's results).
+    let mut formulas = Vec::new();
+    {
+        let mut fj = sctx.job(1);
+        fj.bind("CASE_COUNT", Value::num(sctx.n as f64));
+        for f in &stage.excel_formulas {
+            if sctx.truthy_opt(&mut fj, &f.when)? == Some(false) {
+                continue;
+            }
+            let (col, r1, r2) = (sctx.eval_pos(&mut fj, &f.col)?, sctx.eval_pos(&mut fj, &f.row_from)?, sctx.eval_pos(&mut fj, &f.row_to)?);
+            if r2 < r1 || col < 1 {
+                continue;
+            }
+            let text = match sctx.eval_uniform(&mut fj, &f.r1c1)? {
+                Scalar::Text(t) => t.to_string(),
+                other => return Err(RunError::Eval(format!("formula text gave {other:?}"))),
+            };
+            formulas.push((sheet_idx(model, &f.sheet)?, Rect { r1: r1 as u32, c1: col as u32, r2: r2 as u32, c2: col as u32 }, text));
+        }
+    }
     let out: Overlay = patches.into_iter().map(|(s, m)| (s, m.into_inner().unwrap())).collect();
     let report = StageReport {
         name: stage.name.clone(),
@@ -465,7 +548,7 @@ fn run_stage(
         cells_written: written.into_inner(),
         excel_errors: excel_errors.into_inner(),
     };
-    Ok((out, report, new_state))
+    Ok((out, report, new_state, formulas))
 }
 
 fn show(s: &Scalar) -> String {
@@ -509,15 +592,25 @@ impl StageCtx<'_> {
     }
 }
 
-fn run_job(sctx: &StageCtx, spec: &JobSpec, write: &(dyn Fn(usize, Vec<(Cell, CellValue)>) + Sync)) -> Res<Vec<(usize, Cell, Lanes)>> {
+fn slice(l: &Lanes, start: usize, len: usize) -> Lanes {
+    match l {
+        Lanes::Uniform(_) => l.clone(),
+        _ => Lanes::from_vec((start..start + len).map(|i| l.get(i)).collect()),
+    }
+}
+
+/// One job over cases `start..start+len`.
+fn run_job(sctx: &StageCtx, spec: &JobSpec, start: usize, len: usize, write: &(dyn Fn(usize, Vec<(Cell, CellValue)>) + Sync)) -> Res<Vec<(usize, Cell, Lanes)>> {
     let model = sctx.model;
     let stage = sctx.stage;
-    let mut job = sctx.job(sctx.n);
+    let first = start == 0;
+    let last = start + len == sctx.n;
+    let mut job = sctx.job(len);
     for (k, v) in &spec.vars {
         job.bind(k, Value::S(Lanes::Uniform(v.clone())));
     }
-    job.bind("J", Value::S(sctx.j_lanes.clone()));
-    job.bind("CASE_ID", Value::S(sctx.case_ids.clone()));
+    job.bind("J", Value::S(slice(&sctx.j_lanes, start, len)));
+    job.bind("CASE_ID", Value::S(slice(&sctx.case_ids, start, len)));
     job.bind("CASE_COUNT", Value::num(sctx.n as f64));
     let mut final_state = Vec::new();
     for d in &stage.drivers {
@@ -525,8 +618,8 @@ fn run_job(sctx: &StageCtx, spec: &JobSpec, write: &(dyn Fn(usize, Vec<(Cell, Ce
         let v = sctx.eval(&mut job, &d.value)?;
         let cell = Cell { row: r.r1, col: r.c1 };
         if d.per_case {
-            if !spec.skip_cases {
-                final_state.push((s, cell, Lanes::Uniform(v.get(sctx.n - 1))));
+            if !spec.skip_cases && last {
+                final_state.push((s, cell, Lanes::Uniform(v.get(len - 1))));
             }
         } else {
             final_state.push((s, cell, v.clone()));
@@ -535,12 +628,17 @@ fn run_job(sctx: &StageCtx, spec: &JobSpec, write: &(dyn Fn(usize, Vec<(Cell, Ce
     }
     // Per-sheet batches of writes.
     let mut batches: HashMap<usize, Vec<(Cell, CellValue)>> = HashMap::new();
-    for h in stage.headers.iter().filter(|h| h.scope == Scope::Job) {
-        let cells = header_cells(sctx, &mut job, h)?;
-        batches.entry(sheet_idx(model, &h.sheet)?).or_default().extend(cells);
+    if first {
+        for h in stage.headers.iter().filter(|h| h.scope == Scope::Job) {
+            let cells = header_cells(sctx, &mut job, h)?;
+            batches.entry(sheet_idx(model, &h.sheet)?).or_default().extend(cells);
+        }
     }
     for o in &stage.outputs {
         if spec.skip_cases && !o.ignore_skip_cases {
+            continue;
+        }
+        if o.case_step.is_none() && !first {
             continue;
         }
         if sctx.truthy_opt(&mut job, &o.when)? == Some(false) {
@@ -556,8 +654,8 @@ fn run_job(sctx: &StageCtx, spec: &JobSpec, write: &(dyn Fn(usize, Vec<(Cell, Ce
                 let lanes = job.cell(src_sheet, Cell { row, col }).map_err(|e| RunError::Eval(format!("{}: {e}", o.source)))?;
                 match o.case_step {
                     Some(cs) => {
-                        for j in 0..sctx.n {
-                            if let Some(c) = place(base, o.step, k, Some(cs), j) {
+                        for j in 0..len {
+                            if let Some(c) = place(base, o.step, k, Some(cs), start + j) {
                                 out.push((c, to_cell(&lanes.get(j))));
                             }
                         }
@@ -581,3 +679,4 @@ fn run_job(sctx: &StageCtx, spec: &JobSpec, write: &(dyn Fn(usize, Vec<(Cell, Ce
     }
     Ok(final_state)
 }
+

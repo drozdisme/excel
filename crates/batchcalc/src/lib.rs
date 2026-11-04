@@ -21,7 +21,9 @@ pub fn find_contract(dirs: &[PathBuf], sheet_names: &[String]) -> Result<(PathBu
             if c.required_sheets.iter().all(|r| sheet_names.iter().any(|s| s.eq_ignore_ascii_case(r))) {
                 return Ok((p, c));
             }
-            seen.push(c.name);
+            if !seen.contains(&c.name) {
+                seen.push(c.name);
+            }
         }
     }
     Err(if seen.is_empty() { "no batch contracts found".into() } else { format!("no contract matches this workbook (known: {})", seen.join(", ")) })
@@ -38,7 +40,10 @@ pub fn fully_cleared_sheets(contract: &Contract, stages: &[String]) -> Vec<Strin
     let mut out = Vec::new();
     for s in stages {
         if let Some(st) = contract.stage(s) {
-            out.extend(st.clear.iter().filter(|c| !c.contains('!')).cloned());
+            out.extend(st.clear.iter().filter_map(|c| match c {
+                contract::ClearSpec::Always(r) if !r.contains('!') => Some(r.clone()),
+                _ => None,
+            }));
         }
     }
     out

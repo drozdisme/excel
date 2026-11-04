@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   Ground truth from real Excel: open a COPY of a workbook in a private hidden Excel, assign
   driver cells, recalculate and dump the values of chosen sheets as TSV.
@@ -32,7 +32,7 @@ try {
         $sheet, $cell = $addr.Split('!', 2)
         $r = $wb.Worksheets.Item($sheet.Trim("'")).Range($cell)
         $num = 0.0
-        if ($val -match '^-?\d+(\.\d+)?([eE][-+]?\d+)?$' -and -not $val.StartsWith("'")) { $r.Value2 = [double]::Parse($val, [Globalization.CultureInfo]::InvariantCulture) }
+        if ($val -match '^-?\d+(\.\d+)?([eE][-+]?\d+)?$' -and -not $val.StartsWith("'")) { $r.Value2 = [double]$val }
         else { $r.Value2 = $val }
     }
     if ($Full) { $xl.CalculateFull() } else { $xl.Calculate() }
@@ -50,7 +50,7 @@ try {
                 $v = $vals[$i, $j]
                 if ($null -eq $v) { continue }
                 $t = switch ($v.GetType().Name) { 'Double' { 'n' } 'String' { 's' } 'Boolean' { 'b' } 'Int32' { 'e' } default { 'x' } }
-                $text = if ($t -eq 'n') { $v.ToString('R', [Globalization.CultureInfo]::InvariantCulture) } elseif ($t -eq 'e') { [string]$v } else { ([string]$v).Replace("`t", ' ').Replace("`r", ' ').Replace("`n", ' ') }
+                $text = if ($t -eq 'n') { $v.ToString('R', [Globalization.CultureInfo]::InvariantCulture) } elseif ($t -eq 'e') { [string]$v } else { ([string]$v).Replace('\', '\\').Replace("`t", '\t').Replace("`r", '\r').Replace("`n", '\n') }
                 $w.WriteLine("$name`t$($r0 + $i - $lr)`t$($c0 + $j - $lc)`t$t`t$text")
             }
         }
@@ -62,3 +62,5 @@ try {
     Remove-Item $tmp -ErrorAction SilentlyContinue
 }
 Write-Host "oracle written: $Out"
+
+

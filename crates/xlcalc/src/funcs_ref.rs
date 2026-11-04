@@ -45,6 +45,24 @@ impl<'m> Job<'m> {
                 Value::num((if name == "ROWS" { r } else { c }) as f64)
             }
             "INDEX" => self.f_index(args, cx)?,
+            // Contract helpers (VBA End(xlUp)/End(xlToLeft)): last non-empty row/column in a
+            // reference, 0 if none.
+            "BC_LASTROW" | "BC_LASTCOL" => {
+                let Some(Value::R(r)) = args.first().map(|a| self.eval(a, cx)).transpose()? else {
+                    return Ok(Some(Value::err(XlError::Value)));
+                };
+                let (mr, mc) = self.m.extent(r.sheet);
+                let (r2, c2) = (r.rect.r2.min(mr), r.rect.c2.min(mc));
+                let mut last = 0u32;
+                for row in r.rect.r1..=r2 {
+                    for col in r.rect.c1..=c2 {
+                        if self.is_occupied(r.sheet, Cell { row, col }) {
+                            last = last.max(if name == "BC_LASTROW" { row } else { col });
+                        }
+                    }
+                }
+                Value::num(last as f64)
+            }
             "MATCH" => self.f_match(args, cx, false)?,
             "XMATCH" => self.f_match(args, cx, true)?,
             "XLOOKUP" => self.f_xlookup(args, cx)?,
@@ -198,6 +216,56 @@ impl<'m> Job<'m> {
 
     /// INDEX with array-valued row/column arguments: element-wise gather.
     fn index_array_args(&mut self, src: Value, rv: Option<Value>, cv: Option<Value>, cx: &Ctx) -> R<Value> {
+        // Reference source: read only the selected cells (the source may be huge).
+        if let Value::R(rf) = &src {
+            let rf = *rf;
+            let (rows, cols) = Self::ref_shape(&rf);
+            let as_arr = |v: Option<Value>, d: f64| -> Arc<Array> {
+                match v {
+                    Some(Value::A(a)) => a,
+                    Some(Value::S(l)) => Arc::new(Array::scalar(l)),
+                    _ => Arc::new(Array::scalar(Lanes::Uniform(Scalar::Num(d)))),
+                }
+            };
+            let ra = as_arr(rv, 1.0);
+            let ca = as_arr(cv, if cols == 1 { 1.0 } else { 0.0 });
+            let (orows, ocols) = (ra.rows.max(ca.rows), ra.cols.max(ca.cols));
+            let n = self.n;
+            let mut data = Vec::with_capacity(orows * ocols);
+            for i in 0..orows {
+                for j in 0..ocols {
+                    let (rl, cl) = (ra.at_broadcast(i, j), ca.at_broadcast(i, j));
+                    let pick = |rs: &Scalar, cs: &Scalar| -> Result<Cell, XlError> {
+                        let (r, c) = (rs.to_num()?.trunc() as i64, cs.to_num()?.trunc() as i64);
+                        let (r, c) = if rows == 1 && c == 0 { (1, r) } else { (r, c.max(1)) };
+                        if r < 0 || c < 0 {
+                            return Err(XlError::Value);
+                        }
+                        if r < 1 || r as usize > rows || c as usize > cols {
+                            return Err(XlError::Ref);
+                        }
+                        Ok(Cell { row: rf.rect.r1 + r as u32 - 1, col: rf.rect.c1 + c as u32 - 1 })
+                    };
+                    if rl.is_uniform() && cl.is_uniform() {
+                        data.push(match pick(rl.as_uniform().unwrap(), cl.as_uniform().unwrap()) {
+                            Ok(c) => self.cell(rf.sheet, c)?,
+                            Err(e) => Lanes::Uniform(Scalar::Err(e)),
+                        });
+                    } else {
+                        let mut out = Vec::with_capacity(n);
+                        for k in 0..n {
+                            out.push(match pick(&rl.get(k), &cl.get(k)) {
+                                Ok(c) => self.cell(rf.sheet, c)?.get(k),
+                                Err(e) => Scalar::Err(e),
+                            });
+                        }
+                        data.push(Lanes::from_vec(out));
+                    }
+                }
+            }
+            let _ = cx;
+            return Ok(Value::A(Arc::new(Array::new(orows, ocols, data))));
+        }
         let arr = self.to_array(src)?;
         let rv = rv.unwrap_or(Value::num(1.0));
         let cv = cv.unwrap_or(Value::num(if arr.cols == 1 { 1.0 } else { 0.0 }));

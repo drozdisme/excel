@@ -149,13 +149,68 @@ impl<'m> Job<'m> {
             "FILTER" => {
                 let a = self.arr_arg(&args[0], cx)?;
                 let inc = self.arr_arg(&args[1], cx)?;
-                if !inc.all_uniform() {
-                    return unsupported("FILTER with case-dependent condition");
-                }
                 let by_rows = inc.cols == 1 && inc.rows == a.rows;
                 let by_cols = inc.rows == 1 && inc.cols == a.cols;
                 if !by_rows && !by_cols {
                     return Ok(Some(Value::err(XlError::Value)));
+                }
+                if !inc.all_uniform() {
+                    // Case-dependent selection: each case keeps its own items; the result has the
+                    // largest case's size and cells beyond a case's own result are empty (what
+                    // cell-by-cell consumers of the spill range see in Excel).
+                    let n = self.n;
+                    let len = if by_rows { a.rows } else { a.cols };
+                    let width = if by_rows { a.cols } else { a.rows };
+                    let mut keep: Vec<Vec<usize>> = Vec::with_capacity(n);
+                    let mut lane_err: Vec<Option<Scalar>> = vec![None; n];
+                    for (i, le) in lane_err.iter_mut().enumerate() {
+                        let mut k = Vec::new();
+                        for t in 0..len {
+                            match inc.data[t].get(i).to_bool() {
+                                Ok(true) => k.push(t),
+                                Ok(false) => {}
+                                Err(e) => {
+                                    *le = Some(Scalar::Err(e));
+                                    break;
+                                }
+                            }
+                        }
+                        keep.push(k);
+                    }
+                    let empty_alt = match args.get(2) {
+                        Some(e) if !matches!(e, Expr::Missing) => {
+                            let v = self.eval(e, cx)?;
+                            Some(self.to_lanes(v, cx)?)
+                        }
+                        _ => None,
+                    };
+                    let count = keep.iter().map(|k| k.len()).max().unwrap_or(0).max(1);
+                    let (rows, cols) = if by_rows { (count, width) } else { (width, count) };
+                    let mut data = Vec::with_capacity(rows * cols);
+                    for r in 0..rows {
+                        for c in 0..cols {
+                            let (item, w) = if by_rows { (r, c) } else { (c, r) };
+                            let lanes: Vec<Scalar> = (0..n)
+                                .map(|i| {
+                                    if let Some(e) = &lane_err[i] {
+                                        return if item == 0 && w == 0 { e.clone() } else { Scalar::Empty };
+                                    }
+                                    match keep[i].get(item) {
+                                        Some(&t) => {
+                                            let (sr, sc) = if by_rows { (t, w) } else { (w, t) };
+                                            a.get(sr, sc).get(i)
+                                        }
+                                        None if keep[i].is_empty() && item == 0 && w == 0 => {
+                                            empty_alt.as_ref().map(|l| l.get(i)).unwrap_or(Scalar::Err(XlError::Calc))
+                                        }
+                                        None => Scalar::Empty,
+                                    }
+                                })
+                                .collect();
+                            data.push(Lanes::from_vec(lanes));
+                        }
+                    }
+                    return Ok(Some(Value::A(Arc::new(Array::new(rows, cols, data)))));
                 }
                 let keep: Vec<bool> = inc.data.iter().map(|l| l.as_uniform().unwrap().to_bool().unwrap_or(false)).collect();
                 let mut d = Vec::new();

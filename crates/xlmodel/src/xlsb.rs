@@ -138,7 +138,8 @@ fn quote_sheet(s: &str) -> String {
 /// (shared/array member) with the anchor row.
 enum Decoded {
     Text(String),
-    Exp(u32),
+    /// Member of a shared/array formula whose master is at (row, col) (1-based).
+    Exp(u32, Option<u32>),
 }
 
 fn col_ref(c: u16, base: u32, n_form: bool) -> (String, u32) {
@@ -171,7 +172,9 @@ fn decompile(rgce: &[u8], rgcb: &[u8], at: Cell, ctx: &Ctx) -> Result<Decoded, S
         match base {
             0x01 => {
                 let row = r.u32().ok_or_else(bad)?;
-                return Ok(Decoded::Exp(row + 1));
+                // The master's column is stored in the formula's extra data.
+                let col = Rd::new(rgcb).u32().map(|c| c + 1);
+                return Ok(Decoded::Exp(row + 1, col));
             }
             0x02 => return Ok(Decoded::Text("_BC_DATATABLE()".into())),
             0x03..=0x11 => {
@@ -462,7 +465,7 @@ fn read_sheet(data: &[u8], part: &str, strings: &[Arc<str>], ctx: &Ctx, sheet: &
     let mut row = 0u32;
     let mut meta = false;
     // Cells whose formula is PtgExp (shared or array member) â†’ resolved after all records.
-    let mut pending: Vec<(Cell, u32, bool)> = Vec::new();
+    let mut pending: Vec<(Cell, u32, Option<u32>)> = Vec::new();
     let mut last_cell = Cell { row: 0, col: 0 };
     let mut last_dynamic = false;
     let mut shared: Vec<(Rect, Cell, Arc<str>)> = Vec::new();
@@ -500,7 +503,7 @@ fn read_sheet(data: &[u8], part: &str, strings: &[Arc<str>], ctx: &Ctx, sheet: &
                         Ok(Decoded::Text(text)) => {
                             sheet.formulas.insert(c, Formula { text: Arc::from(text), origin: c, kind: FormulaKind::Normal });
                         }
-                        Ok(Decoded::Exp(anchor_row)) => pending.push((c, anchor_row, dynamic)),
+                        Ok(Decoded::Exp(anchor_row, anchor_col)) => pending.push((c, anchor_row, anchor_col)),
                         Err(e) => {
                             errors += 1;
                             if errors <= 3 {
@@ -543,11 +546,13 @@ fn read_sheet(data: &[u8], part: &str, strings: &[Arc<str>], ctx: &Ctx, sheet: &
             }
         }
     }
-    for (c, _anchor_row, _) in pending {
+    for (c, anchor_row, anchor_col) in pending {
         if sheet.array_members.contains_key(&c) {
             continue;
         }
-        match shared.iter().find(|(rect, _, _)| rect.contains(c)) {
+        // Shared ranges may overlap: prefer the group whose master is the one PtgExp names.
+        let exact = anchor_col.and_then(|col| shared.iter().find(|(_, o, _)| *o == Cell { row: anchor_row, col }));
+        match exact.or_else(|| shared.iter().find(|(rect, o, _)| rect.contains(c) && o.row == anchor_row)).or_else(|| shared.iter().find(|(rect, _, _)| rect.contains(c))) {
             Some((_, origin, text)) => {
                 sheet.formulas.insert(c, Formula { text: text.clone(), origin: *origin, kind: FormulaKind::Normal });
             }
@@ -558,4 +563,5 @@ fn read_sheet(data: &[u8], part: &str, strings: &[Arc<str>], ctx: &Ctx, sheet: &
     }
     Ok(())
 }
+
 
