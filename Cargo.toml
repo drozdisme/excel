@@ -1,0 +1,10 @@
+[workspace]
+members = ["crates/xlmodel", "crates/xlformula", "crates/xlcalc", "crates/batchcalc"]
+resolver = "2"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "unwind"
+debug = "line-tables-only"
