@@ -1,0 +1,79 @@
+name: Build installer
+
+# Every push to main builds the installer (downloadable from the run's "Artifacts").
+# Pushing a tag vX.Y.Z publishes a GitHub Release with BatchCalc-Setup-X.Y.Z.exe attached.
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rust toolchain
+        shell: pwsh
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustc --version
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: cargo-${{ runner.os }}-
+
+      - name: Version must match the tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          $v = (Select-String -Path crates\xll\Cargo.toml -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
+          if ("v$v" -ne "${{ github.ref_name }}") { throw "Tag ${{ github.ref_name }} does not match crate version $v" }
+
+      - name: Test and build release
+        shell: pwsh
+        run: ./tools/Build-Release.ps1
+
+      - name: No Visual C++ runtime dependency
+        shell: pwsh
+        run: |
+          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
+          $dumpbin = Get-ChildItem "$vs\VC\Tools\MSVC" -Recurse -Filter dumpbin.exe | Where-Object FullName -match 'Hostx64\\x64' | Select-Object -First 1
+          foreach ($f in 'target\release\batchcalc_xll.dll', 'target\release\BatchCalc-Setup.exe', 'target\release\batchcalc.exe') {
+            $deps = & $dumpbin.FullName /dependents $f | Out-String
+            if ($deps -match '(?i)vcruntime|msvcp|api-ms-win-crt') { throw "$f depends on the VC++ runtime:`n$deps" }
+          }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BatchCalc-installer
+          path: |
+            dist/*.exe
+            dist/*.zip
+            dist/SHA256SUMS.txt
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $notes = @"
+          **Установка:** скачайте ``BatchCalc-Setup-*.exe``, закройте Excel, запустите установщик (права администратора не нужны), откройте Excel → вкладка **Надстройки → BatchCalc**.
+
+          Если Windows покажет «Система Windows защитила ваш компьютер» — **Подробнее → Выполнить в любом случае** (установщик пока не подписан сертификатом компании).
+
+          Руководство: docs/USER_GUIDE_RU.md
+          "@
+          gh release create "${{ github.ref_name }}" dist/*.exe dist/*.zip dist/SHA256SUMS.txt --title "BatchCalc ${{ github.ref_name }}" --notes $notes

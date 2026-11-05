@@ -8,6 +8,20 @@ once**, then writes the results into the workbook exactly as the macro would.
 777P2F Frame STA403: ~4 h in Excel → ~3 s calculation, 15–30 s end to end in Excel,
 results identical to the macro's (see `docs/VERIFICATION.md`).
 
+## Установка (для инженера)
+
+1. Скачайте `BatchCalc-Setup-<версия>.exe` со страницы
+   [Releases](https://github.com/drozdisme/excel/releases/latest).
+2. Закройте Excel, запустите установщик (без прав администратора, без доп. компонентов).
+3. Откройте книгу в Excel → **Надстройки → BatchCalc → команда**.
+
+Подробно: `docs/USER_GUIDE_RU.md`.
+
+## Release
+
+GitHub Actions (`.github/workflows/release.yml`) builds and tests on every push; pushing a tag
+`vX.Y.Z` (matching the crate version) publishes a Release with the installer attached.
+
 ## Layout
 
 | Path | Content |
